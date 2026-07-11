@@ -13,7 +13,7 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
   "bugs": {
     "url": "https://github.com/Henry3029/WEEX-AI-WARS/issues"
   },
@@ -23,6 +23,7 @@
     "dotenv": "^17.4.2"
   },
   "devDependencies": {
-    "@types/node": "^26.1.1"
+    "@types/node": "^26.1.1",
+    "tsx": "^4.23.0"
   }
 }
