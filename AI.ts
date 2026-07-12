@@ -3,6 +3,12 @@ import * as dotenv from 'dotenv';
 import express from 'express';
 import http from 'http';
 
+console.log("===[ ENV DIAGNOSTICS ]===");
+console.log("API Key loaded:", process.env.WEEX_API_KEY ? "YES (Length: " + process.env.WEEX_API_KEY.length + ")" : "NO/UNDEFINED");
+console.log("Secret loaded:", process.env.WEEX_SECRET_KEY ? "YES" : "NO/UNDEFINED");
+console.log("Passphrase loaded:", process.env.WEEX_PASSPHRASE ? "YES" : "NO/UNDEFINED");
+console.log("=========================");
+
 // Load environment credentials securely
 dotenv.config();
 
