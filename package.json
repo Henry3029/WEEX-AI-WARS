@@ -2,7 +2,7 @@
   "name": "weex-ai-wars",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "AI.ts",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -20,9 +20,11 @@
   "homepage": "https://github.com/Henry3029/WEEX-AI-WARS#readme",
   "dependencies": {
     "ccxt": "^4.5.64",
-    "dotenv": "^17.4.2"
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1"
   },
   "devDependencies": {
+    "@types/express": "^5.0.6",
     "@types/node": "^26.1.1",
     "tsx": "^4.23.0"
   }
