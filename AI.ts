@@ -66,11 +66,7 @@ async function startTradingEngine() {
         }
     });
     
-    // Manually assign the WEEX Testnet API endpoints
-exchange.urls['api'] = {
-    'public': 'https://testnet-api.weex.com',
-    'private': 'https://testnet-api.weex.com'
-};
+  
 
     try {
         console.log("╔══════════════════════════════════════════════════════╗");
