@@ -23,7 +23,7 @@ const CONFIG = {
     ACTIVE_ASSET: 'SOL/USDT:USDT', // Alternates: 'DOGE/USDT:USDT' or 'XRP/USDT:USDT'
     LEVERAGE_LIMIT: 20,            // Strict compliance threshold
     POLL_INTERVAL_MS: 3000,         // Check prices every 3 seconds
-RENDER_URL: 'https://your-app-name.onrender.com',
+RENDER_URL: 'https://weex-ai-wars.onrender.com',
 DRY_RUN: true
 };
 
