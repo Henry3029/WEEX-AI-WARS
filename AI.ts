@@ -65,6 +65,8 @@ async function startTradingEngine() {
             'defaultType': 'swap', // Locks into the perpetual swap database engine
         }
     });
+    
+    exchange.setSandboxMode(true);
 
     try {
         console.log("╔══════════════════════════════════════════════════════╗");
