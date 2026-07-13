@@ -67,6 +67,8 @@ async function startTradingEngine() {
     });
     
     exchange.setSandboxMode(true);
+    // Print the exact API endpoint that CCXT is targeting
+console.log("===> CURRENT WEEX API URL:", exchange.urls['api']);
 
     try {
         console.log("╔══════════════════════════════════════════════════════╗");
