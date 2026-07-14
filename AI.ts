@@ -1,6 +1,7 @@
 import ccxt from 'ccxt';
 import * as dotenv from 'dotenv';
 import express from 'express';
+import http from 'http';
 import https from 'https';
 
 // Load environment credentials securely
