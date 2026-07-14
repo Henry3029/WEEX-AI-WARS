@@ -10,7 +10,7 @@ console.log("Passphrase loaded:", process.env.WEEX_PASSPHRASE ? "YES" : "NO/UNDE
 console.log("=========================");
 
 // Load environment credentials securely
-dotenv.config();
+dotenv.config(); //.
 
 const app = express();
 // Render automatically provides a PORT environment variable. Fallback to 3000 locally.
