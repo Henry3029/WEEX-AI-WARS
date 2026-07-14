@@ -1,16 +1,16 @@
 import ccxt from 'ccxt';
 import * as dotenv from 'dotenv';
 import express from 'express';
-import http from 'http';
+import https from 'https';
+
+// Load environment credentials securely
+dotenv.config(); 
 
 console.log("===[ ENV DIAGNOSTICS ]===");
 console.log("API Key loaded:", process.env.WEEX_API_KEY ? "YES (Length: " + process.env.WEEX_API_KEY.length + ")" : "NO/UNDEFINED");
 console.log("Secret loaded:", process.env.WEEX_SECRET_KEY ? "YES" : "NO/UNDEFINED");
 console.log("Passphrase loaded:", process.env.WEEX_PASSPHRASE ? "YES" : "NO/UNDEFINED");
 console.log("=========================");
-
-// Load environment credentials securely
-dotenv.config(); //.
 
 const app = express();
 // Render automatically provides a PORT environment variable. Fallback to 3000 locally.
@@ -23,7 +23,7 @@ const CONFIG = {
     ACTIVE_ASSET: 'SOL/USDT:USDT', // Alternates: 'DOGE/USDT:USDT' or 'XRP/USDT:USDT'
     LEVERAGE_LIMIT: 20,            // Strict compliance threshold
     POLL_INTERVAL_MS: 3000,         // Check prices every 3 seconds
-RENDER_URL: 'http://weex-ai-wars.onrender.com',
+RENDER_URL: 'https://weex-ai-wars.onrender.com',
 DRY_RUN: true
 };
 
@@ -61,6 +61,7 @@ async function startTradingEngine() {
         'apiKey': process.env.WEEX_API_KEY,
         'secret': process.env.WEEX_SECRET_KEY,
         'password': process.env.WEEX_PASSPHRASE,
+        'timeout': 10000,
         'options': {
             'defaultType': 'swap', // Locks into the perpetual swap database engine
         }
