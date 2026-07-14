@@ -48,7 +48,7 @@ function startSelfPinger() {
         }
 
 console.log(`[Pinger] Firing self-ping to keep container awake...`);
-        http.get(CONFIG.RENDER_URL, (res) => {
+        https.get(CONFIG.RENDER_URL, (res) => {
             console.log(`[Pinger] Response status received: ${res.statusCode}`);
         }).on('error', (err) => {
             console.error(`[Pinger] Ping failed:`, err.message);
