@@ -3,6 +3,7 @@ import * as dotenv from 'dotenv';
 import express from 'express';
 import http from 'http';
 import https from 'https';
+import { logAIDecision } from '@/utils/logger'; 
 
 // Load environment credentials securely
 dotenv.config(); 
@@ -89,43 +90,74 @@ async function startTradingEngine() {
         console.log(`Starting continuous monitoring stream on high-volatility target [ ${CONFIG.ACTIVE_ASSET} ]`);
         console.log("Press Ctrl+C inside Termux/Terminal to stop the engine.\n");
 
-        // The Continuous Active Loop
-        while (true) {
-            try {
-                // Fetch the live ticker object wrapper over the internet
-                const ticker = await exchange.fetchTicker(CONFIG.ACTIVE_ASSET);
-                
-                // Dig out the exact last traded price evaluation point
-                const currentPrice = ticker.last;
-                const dailyChangePercent = ticker.percentage;
+     // Initialise arrays outside your loop
+const closePrices: number[] = [];
 
-                // Format a clear output line for your console dashboard
-                const timestamp = new Date().toLocaleTimeString();
-                console.log(`[${timestamp}] Asset: ${CONFIG.ACTIVE_ASSET} | Price: $${currentPrice} | 24h Change: ${dailyChangePercent}%`);
-
-                /* 
-                  Future AI Strategy Zone:
-                  This is exactly where your algorithm will evaluate if 
-                  it's time to open a position (Long/Short) based on price movements.
-                */
-
-// ════════════ PLACE THE SAFETY GATE HERE ════════════
-                if (CONFIG.DRY_RUN) {
-                    // When you write your trading logic later, it stops here safely
-                    // console.log("[SIMULATION] Safety gate active. No real funds used.");
-                } else {
-                    // This is where real CCXT order execution commands will go later
-                }
-                // ═════════════════════════════════════════════════════
-
-            } catch (networkError: any) {
-                // If a packet drops or a temporary network error occurs, log it but DON'T let the bot crash
-                console.warn(`[Network Warning] Failed to fetch ticker data: ${networkError.message}. Retrying...`);
-            }
-
-            // Pause the execution loop smoothly for your specified time interval (3 seconds)
-            await new Promise(resolve => setTimeout(resolve, CONFIG.POLL_INTERVAL_MS));
+while (true) {
+    try {
+        const ticker = await exchange.fetchTicker(CONFIG.ACTIVE_ASSET);
+        const currentPrice = ticker.last;
+        
+        // Add the new price to our dataset
+        closePrices.push(currentPrice);
+        if (closePrices.length > 50) {
+            closePrices.shift(); // Keep a healthy window of 50 prices for accurate indicators
         }
+
+        // We need enough data to calculate our indicators
+        if (closePrices.length >= 20) {
+            
+            // 1. Calculate EMAs
+            const emaFastArray = EMA.calculate({ period: 5, values: closePrices });
+            const emaSlowArray = EMA.calculate({ period: 13, values: closePrices });
+            
+            // Get the most recent EMA values
+            const currentEmaFast = emaFastArray[emaFastArray.length - 1];
+            const currentEmaSlow = emaSlowArray[emaSlowArray.length - 1];
+            
+            // Get the previous EMA values (to detect a crossover!)
+            const prevEmaFast = emaFastArray[emaFastArray.length - 2];
+            const prevEmaSlow = emaSlowArray[emaSlowArray.length - 2];
+
+            // 2. Calculate RSI
+            const rsiArray = RSI.calculate({ period: 14, values: closePrices });
+            const currentRSI = rsiArray[rsiArray.length - 1];
+
+            // 3. The Winning Logic:
+            // - Did the fast EMA cross ABOVE the slow EMA? (Trend reversal upward)
+            // - Is the market NOT overbought yet? (RSI < 65)
+            const isEmaCrossover = (prevEmaFast <= prevEmaSlow) && (currentEmaFast > currentEmaSlow);
+            const isNotOverbought = currentRSI < 65;
+
+            if (isEmaCrossover && isNotOverbought) {
+                const signal = `EMA_CROSSOVER_BUY`;
+                const reason = `Fast EMA (5) crossed above Slow EMA (13). RSI is at ${currentRSI.toFixed(1)} (Healthy momentum).`;
+
+                const executionRecord = {
+                    mode: CONFIG.DRY_RUN ? "DRY_RUN_SIMULATION" : "LIVE",
+                    asset: CONFIG.ACTIVE_ASSET,
+                    action: "BUY_LONG",
+                    executionPrice: currentPrice,
+                    indicators: {
+                        fastEma: currentEmaFast.toFixed(2),
+                        slowEma: currentEmaSlow.toFixed(2),
+                        rsi: currentRSI.toFixed(1)
+                    },
+                    status: "COMPLETED"
+                };
+
+                // Trigger your beautiful logging function!
+                logAIDecision(signal, reason, executionRecord);
+            }
+        }
+
+    } catch (networkError: any) {
+        console.warn(`[Network Warning] Failed to fetch ticker data: ${networkError.message}. Retrying...`);
+    }
+
+    // Your 7-second pause
+    await new Promise(resolve => setTimeout(resolve, CONFIG.POLL_INTERVAL_MS));
+}
 
     } catch (criticalError: any) {
         console.error("❌ CRITICAL: Engine initialization failed:", criticalError.message);
