@@ -1,4 +1,4 @@
-import { promises as fs } from 'node:fs'; // Put this at the very top with your other imports
+import * as fs from 'fs';; // Put this at the very top with your other imports
 
 
 // Add these interfaces to the very top of logger.ts
