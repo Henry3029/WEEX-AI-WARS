@@ -7,9 +7,9 @@
     "types": ["node"],
 
     /* Path Aliases (Fixes the deprecation & relative paths!) */
-    "paths": {
-      "@/*": ["./src/*"]                  /* Notice the "./" added here */
-    },
+  "paths": {
+  "@/*": ["./src/*", "src/*"]
+},
 
     /* Strictness & Safety */
     "strict": true,
