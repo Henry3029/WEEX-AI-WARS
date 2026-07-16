@@ -59,45 +59,81 @@ console.log(`[Pinger] Firing self-ping to keep container awake...`);
 }
 
 async function startTradingEngine() {
-    // Initialize connection handler with your private key array
     const exchange = new ccxt.weex({
         'apiKey': process.env.WEEX_API_KEY,
         'secret': process.env.WEEX_SECRET_KEY,
         'password': process.env.WEEX_PASSPHRASE,
         'timeout': 10000,
-        'options': {
-            'defaultType': 'swap', // Locks into the perpetual swap database engine
-        }
+        'options': { 'defaultType': 'swap' }
     });
 
-    // 1. REUSABLE TRACKING LOOP FOR AN INDIVIDUAL ASSET
-    async function monitorAsset(asset: string) {
-        // Each asset gets its own private price history window!
-        const closePrices: number[] = [];
-        console.log(`[Engine] Continuous monitoring loop activated for target: [ ${asset} ]`);
+    try {
+        console.log("╔══════════════════════════════════════════════════════╗");
+        console.log("║           WEEX AI WARS ENGINE ACTIVATED              ║");
+        console.log("╚══════════════════════════════════════════════════════╝");
+        
+        await exchange.loadMarkets();
+
+        // 1. Initialize our single tracking window
+        let currentAssetIndex = 0;
+        let closePrices: number[] = [];
+        
+        // Track the timestamp of when we started monitoring the current asset
+        let assetStartTime = Date.now();
+        const FOUR_HOURS_MS = 4 * 60 * 60 * 1000; // 4 hours in milliseconds
+
+        // Configure leverage limit for all of them upfront
+        for (const asset of CONFIG.ACTIVE_ASSETS) {
+            await exchange.setLeverage(CONFIG.LEVERAGE_LIMIT, asset);
+        }
+
+        startSelfPinger();
+
+        console.log("Engine booted. Ready to cycle targets every 4 hours.\n");
 
         while (true) {
             try {
-                const ticker = await exchange.fetchTicker(asset);
-                const currentPrice = ticker.last as number;
-                
-                // Add the new price to this asset's dataset
-                closePrices.push(currentPrice);
-                if (closePrices.length > 50) {
-                    closePrices.shift(); // Keep a healthy window of 50 prices
+                // Get the currently active asset from our array
+                const activeAsset = CONFIG.ACTIVE_ASSETS[currentAssetIndex];
+
+                // --- 4-HOUR PIVOT CHECK ---
+                const elapsed = Date.now() - assetStartTime;
+                if (elapsed >= FOUR_HOURS_MS) {
+                    console.log(`\n🔄 [Pivot Alarm] 4 hours elapsed! Switching focus...`);
+                    
+                    // Move to the next asset index (loops back to 0 if at the end of the array)
+                    currentAssetIndex = (currentAssetIndex + 1) % CONFIG.ACTIVE_ASSETS.length;
+                    const newAsset = CONFIG.ACTIVE_ASSETS[currentAssetIndex];
+                    
+                    console.log(`🎯 New Target Locked: [ ${newAsset} ]`);
+                    
+                    // CRITICAL: Clear the price history so the old asset's prices don't mix with the new one!
+                    closePrices = []; 
+                    assetStartTime = Date.now(); // Reset the 4-hour timer
+                    
+                    continue; // Skip the rest of this tick and fetch the new asset immediately
                 }
 
-                // We need enough data to calculate our indicators
+                // --- MAIN TRADING ENGINE LOGIC ---
+                const ticker = await exchange.fetchTicker(activeAsset);
+                const currentPrice = ticker.last as number;
+                
+                closePrices.push(currentPrice);
+                if (closePrices.length > 50) {
+                    closePrices.shift();
+                }
+
+                // Log target status so you can see how long is left in the 4-hour window
+                const minutesRemaining = Math.max(0, ((FOUR_HOURS_MS - elapsed) / 60000)).toFixed(1);
+                console.log(`[Tracking: ${activeAsset}] Price: ${currentPrice} | Window: ${closePrices.length}/50 | Next switch in: ${minutesRemaining} mins`);
+
                 if (closePrices.length >= 20) {
                     // 1. Calculate EMAs
                     const emaFastArray = EMA.calculate({ period: 5, values: closePrices });
                     const emaSlowArray = EMA.calculate({ period: 13, values: closePrices });
                     
-                    // Get the most recent EMA values
                     const currentEmaFast = emaFastArray[emaFastArray.length - 1];
                     const currentEmaSlow = emaSlowArray[emaSlowArray.length - 1];
-                    
-                    // Get the previous EMA values (to detect a crossover!)
                     const prevEmaFast = emaFastArray[emaFastArray.length - 2];
                     const prevEmaSlow = emaSlowArray[emaSlowArray.length - 2];
 
@@ -105,17 +141,17 @@ async function startTradingEngine() {
                     const rsiArray = RSI.calculate({ period: 14, values: closePrices });
                     const currentRSI = rsiArray[rsiArray.length - 1];
 
-                    // 3. The Winning Logic:
+                    // 3. Strategy Evaluation
                     const isEmaCrossover = (prevEmaFast <= prevEmaSlow) && (currentEmaFast > currentEmaSlow);
                     const isNotOverbought = currentRSI < 65;
 
                     if (isEmaCrossover && isNotOverbought) {
                         const signal = `EMA_CROSSOVER_BUY`;
-                        const reason = `[${asset}] Fast EMA (5) crossed above Slow EMA (13). RSI is at ${currentRSI.toFixed(1)} (Healthy momentum).`;
+                        const reason = `[${activeAsset}] Fast EMA (5) crossed above Slow EMA (13). RSI is at ${currentRSI.toFixed(1)}.`;
 
                         const executionRecord = {
                             mode: CONFIG.DRY_RUN ? "DRY_RUN_SIMULATION" : "LIVE",
-                            asset: asset, // Dynamic asset name
+                            asset: activeAsset,
                             action: "BUY_LONG",
                             executionPrice: currentPrice,
                             indicators: {
@@ -126,44 +162,17 @@ async function startTradingEngine() {
                             status: "COMPLETED"
                         };
 
-                        // Trigger your beautiful logging function!
                         logAIDecision(signal, reason, executionRecord);
                     }
                 }
 
             } catch (networkError: any) {
-                console.warn(`[Network Warning] [${asset}] Failed to fetch ticker data: ${networkError.message}. Retrying...`);
+                console.warn(`[Network Warning] Failed to fetch ticker: ${networkError.message}`);
             }
 
-            // Pause this specific asset's tracker before looping again
+            // Pause for your standard poll interval before checking the price again
             await new Promise(resolve => setTimeout(resolve, CONFIG.POLL_INTERVAL_MS));
         }
-    }
-
-    // 2. MAIN BOOTSTRAP LOGIC
-    try {
-        console.log("╔══════════════════════════════════════════════════════╗");
-        console.log("║           WEEX AI WARS ENGINE ACTIVATED              ║");
-        console.log("╚══════════════════════════════════════════════════════╝");
-        
-        console.log("Connecting to WEEX API and fetching market structures...");
-        await exchange.loadMarkets();
-
-        // Configure Safety Guardrails and boot a separate tracker for each asset
-        for (const asset of CONFIG.ACTIVE_ASSETS) {
-            console.log(`Configuring safety guardrails... Setting leverage to ${CONFIG.LEVERAGE_LIMIT}x for ${asset}`);
-            await exchange.setLeverage(CONFIG.LEVERAGE_LIMIT, asset);
-            console.log(`Leverage constraints locked successfully for ${asset}.\n`);
-            
-            // Start the background tracking thread for this asset (DO NOT "await" this call)
-            monitorAsset(asset);
-        }
-
-        // Activate the anti-sleep mechanism
-        startSelfPinger();
-
-        console.log("All tracking engines spawned successfully.");
-        console.log("Press Ctrl+C inside Termux/Terminal to stop the engine.\n");
 
     } catch (criticalError: any) {
         console.error("❌ CRITICAL: Engine initialization failed:", criticalError.message);
