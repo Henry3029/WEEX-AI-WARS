@@ -1,17 +1,13 @@
 {
   "compilerOptions": {
-    /* Language and Environment */
     "target": "ES2022",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+    "module": "ESNext",                  /* Changed from NodeNext */
+    "moduleResolution": "bundler",        /* Changed from NodeNext */
+    "customConditions": ["module"],
     "types": ["node"],
-
-    /* Path Aliases (Fixes the deprecation & relative paths!) */
-  "paths": {
-  "@/*": ["./src/*", "src/*"]
-},
-
-    /* Strictness & Safety */
+    "paths": {
+      "@/*": ["./src/*"]
+    },
     "strict": true,
     "noImplicitAny": true,
     "esModuleInterop": true,
