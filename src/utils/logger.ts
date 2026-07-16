@@ -1,4 +1,4 @@
-import fs from 'fs'; // Put this at the very top with your other imports
+import { promises as fs } from 'node:fs'; // Put this at the very top with your other imports
 
 
 // Add these interfaces to the very top of logger.ts
@@ -35,10 +35,11 @@ export function logAIDecision(signal: string, reason: string, executionRecord: E
     console.log(logEntry);
 
     // 3. Write to the file (This is your local proof)
-    fs.appendFile('ai_decisions.log', logEntry + '\n', (err) => {
-        if (err) {
-            // We log the error but don't let it crash the engine
-            console.warn('⚠️ Warning: Could not write to log file:', err.message);
-        }
-    });
+    async function writeLog(logEntry: string) {
+    try {
+        await fs.appendFile('ai_decisions.log', logEntry + '\n');
+    } catch (err) {
+        console.error('Failed to write to log file:', err);
+    }
+}
 }
