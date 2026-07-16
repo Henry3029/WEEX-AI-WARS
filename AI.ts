@@ -3,7 +3,7 @@ import * as dotenv from 'dotenv';
 import express from 'express';
 import http from 'http';
 import https from 'https';
-import { logAIDecision } from '../utils/logger'; 
+import { logAIDecision, ExecutionRecord } from '../utils/logger'; 
 import { EMA, RSI } from 'technicalindicators';
 
 // Load environment credentials securely

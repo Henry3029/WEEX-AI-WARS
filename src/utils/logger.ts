@@ -1,6 +1,23 @@
 import fs from 'fs'; // Put this at the very top with your other imports
 
-export function logAIDecision(signal, reason, executionRecord) {
+
+// Add these interfaces to the very top of logger.ts
+interface MarketIndicators {
+  fastEma: string;
+  slowEma: string;
+  rsi: string;
+}
+
+export interface ExecutionRecord {
+  mode: string;
+  asset: string;
+  action: string;
+  executionPrice: number;
+  indicators: MarketIndicators;
+  status: string;
+}
+
+export function logAIDecision(signal: string, reason: string, executionRecord: ExecutionRecord) {
     const timestamp = new Date().toLocaleTimeString();
     
     // 1. Format the block beautifully
