@@ -97,7 +97,7 @@ const closePrices: number[] = [];
 while (true) {
     try {
         const ticker = await exchange.fetchTicker(CONFIG.ACTIVE_ASSET);
-        const currentPrice = ticker.last;
+        const currentPrice = ticker.last as number;
         
         // Add the new price to our dataset
         closePrices.push(currentPrice);
