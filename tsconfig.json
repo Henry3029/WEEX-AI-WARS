@@ -1,23 +1,22 @@
 {
   "compilerOptions": {
     /* Language and Environment */
-    "target": "ES2022",                             /* Support modern JavaScript features */
-  "module": "NodeNext",
-    "moduleResolution": "NodeNext",                   /* Use Node's file lookup strategy */
-    "types": ["node"],                              /* Force TypeScript to load NodeJS types */
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node"],
 
-    /* Path Aliases */
-    "baseUrl": ".",                                 /* Let's you import using relative paths */
+    /* Path Aliases (Fixes the deprecation & relative paths!) */
     "paths": {
-      "@/*": ["src/*"]                              /* Resolves imports starting with '@' to 'src' */
+      "@/*": ["./src/*"]                  /* Notice the "./" added here */
     },
 
     /* Strictness & Safety */
-    "strict": true,                                 /* Enable all strict type-checking options */
-    "noImplicitAny": true,                          /* Prevent variables from defaulting to 'any' */
-    "esModuleInterop": true,                        /* Allows clean imports like 'import fs from "fs"' */
-    "skipLibCheck": true,                           /* Skip type checking of declaration files (faster) */
-    "forceConsistentCasingInFileNames": true        /* Ensure imports match file casing exactly */
+    "strict": true,
+    "noImplicitAny": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
   },
-  "include": ["src/**/*"]                           /* Tell TS to compile everything inside 'src' */
+  "include": ["src/**/*"]
 }
