@@ -212,7 +212,7 @@ if (isHoldingPosition) {
 
     // 1. DYNAMIC BALANCE CHECKS: Query the exchange for your active futures wallet status
     const balanceStructure = await exchange.fetchBalance({ 'type': 'swap' });
-    const availableUSDT = balanceStructure.free['USDT'] || 0;
+    const availableUSDT = (balanceStructure.free as any)['USDT'] || 0;
     
     // 2. ALLOCATION RULE: Risk exactly 10% of your active wallet equity on this position
     const dynamicMargin = availableUSDT * 0.10; 
@@ -236,7 +236,7 @@ if (isHoldingPosition) {
         continue;
     }
 
-    let liveOrderId = "SIMULATED_ID";
+    let liveOrderId: string | undefined = "SIMULATED_ID";
 
     // 4. LIVE TRANSACTION ENGINE
     if (!CONFIG.DRY_RUN) {
