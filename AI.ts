@@ -74,95 +74,128 @@ async function startTradingEngine() {
         
         await exchange.loadMarkets();
 
-        // 1. Initialize our single tracking window
         let currentAssetIndex = 0;
         let closePrices: number[] = [];
-        
-        // Track the timestamp of when we started monitoring the current asset
         let assetStartTime = Date.now();
-        const FOUR_HOURS_MS = 4 * 60 * 60 * 1000; // 4 hours in milliseconds
+        const FOUR_HOURS_MS = 4 * 60 * 60 * 1000; 
 
-        // Configure leverage limit for all of them upfront
+        // ════════════ NEW POSITION TRACKING STATE ════════════
+        let isHoldingPosition = false;
+        let entryPrice = 0;
+        let takeProfitPrice = 0;
+        let stopLossPrice = 0;
+        // ═════════════════════════════════════════════════════
+
         for (const asset of CONFIG.ACTIVE_ASSETS) {
             await exchange.setLeverage(CONFIG.LEVERAGE_LIMIT, asset);
         }
 
         startSelfPinger();
-
         console.log("Engine booted. Ready to cycle targets every 4 hours.\n");
 
         while (true) {
             try {
-                // Get the currently active asset from our array
                 const activeAsset = CONFIG.ACTIVE_ASSETS[currentAssetIndex];
 
                 // --- 4-HOUR PIVOT CHECK ---
                 const elapsed = Date.now() - assetStartTime;
-                if (elapsed >= FOUR_HOURS_MS) {
+                
+                // CRITICAL RISK RULE: Do NOT switch assets if we are currently stuck in an active live trade!
+                if (elapsed >= FOUR_HOURS_MS && !isHoldingPosition) {
                     console.log(`\n🔄 [Pivot Alarm] 4 hours elapsed! Switching focus...`);
-                    
-                    // Move to the next asset index (loops back to 0 if at the end of the array)
                     currentAssetIndex = (currentAssetIndex + 1) % CONFIG.ACTIVE_ASSETS.length;
                     const newAsset = CONFIG.ACTIVE_ASSETS[currentAssetIndex];
                     
                     console.log(`🎯 New Target Locked: [ ${newAsset} ]`);
-                    
-                    // CRITICAL: Clear the price history so the old asset's prices don't mix with the new one!
                     closePrices = []; 
-                    assetStartTime = Date.now(); // Reset the 4-hour timer
-                    
-                    continue; // Skip the rest of this tick and fetch the new asset immediately
+                    assetStartTime = Date.now(); 
+                    continue; 
+                } else if (elapsed >= FOUR_HOURS_MS && isHoldingPosition) {
+                    // Remind us that the timer went off, but we are waiting on a trade resolution
+                    console.log(`⚠️ [Pivot Delayed] 4 hours passed, but holding an active trade on ${activeAsset}. Postponing shift.`);
+                    assetStartTime = Date.now(); // Postpone timer slightly so it doesn't spam logs
                 }
 
-                // --- MAIN TRADING ENGINE LOGIC ---
+                // --- FETCH CURRENT MARKET PRICE ---
                 const ticker = await exchange.fetchTicker(activeAsset);
                 const currentPrice = ticker.last as number;
                 
                 closePrices.push(currentPrice);
-                if (closePrices.length > 50) {
-                    closePrices.shift();
-                }
+                if (closePrices.length > 50) { closePrices.shift(); }
 
-                // Log target status so you can see how long is left in the 4-hour window
-                const minutesRemaining = Math.max(0, ((FOUR_HOURS_MS - elapsed) / 60000)).toFixed(1);
-                console.log(`[Tracking: ${activeAsset}] Price: ${currentPrice} | Window: ${closePrices.length}/50 | Next switch in: ${minutesRemaining} mins`);
+                // --- MODE A: MONITORING AN ACTIVE POSITION ---
+                if (isHoldingPosition) {
+                    console.log(`[TRADE ACTIVE: ${activeAsset}] Current: $${currentPrice} | TP: $${takeProfitPrice.toFixed(2)} | SL: $${stopLossPrice.toFixed(2)}`);
 
-                if (closePrices.length >= 20) {
-                    // 1. Calculate EMAs
-                    const emaFastArray = EMA.calculate({ period: 5, values: closePrices });
-                    const emaSlowArray = EMA.calculate({ period: 13, values: closePrices });
-                    
-                    const currentEmaFast = emaFastArray[emaFastArray.length - 1];
-                    const currentEmaSlow = emaSlowArray[emaSlowArray.length - 1];
-                    const prevEmaFast = emaFastArray[emaFastArray.length - 2];
-                    const prevEmaSlow = emaSlowArray[emaSlowArray.length - 2];
+                    // 1. Check Take Profit Target
+                    if (currentPrice >= takeProfitPrice) {
+                        console.log(`\n💰💰💰 [TAKE PROFIT HIT] Closing position for ${activeAsset} at $${currentPrice}!`);
+                        
+                        // Real Order Logic would fire here if NOT dry run:
+                        // if (!CONFIG.DRY_RUN) { await exchange.createMarketSellOrder(activeAsset, size); }
 
-                    // 2. Calculate RSI
-                    const rsiArray = RSI.calculate({ period: 14, values: closePrices });
-                    const currentRSI = rsiArray[rsiArray.length - 1];
+                        isHoldingPosition = false; // Reset state
+                        closePrices = []; // Clear history to prepare fresh signals
+                    } 
+                    // 2. Check Stop Loss Target
+                    else if (currentPrice <= stopLossPrice) {
+                        console.log(`\n🛡️🛡️🛡️ [STOP LOSS HIT] Safeguarding funds. Closing ${activeAsset} at $${currentPrice}.`);
+                        
+                        isHoldingPosition = false; // Reset state
+                        closePrices = []; 
+                    }
 
-                    // 3. Strategy Evaluation
-                    const isEmaCrossover = (prevEmaFast <= prevEmaSlow) && (currentEmaFast > currentEmaSlow);
-                    const isNotOverbought = currentRSI < 65;
+                } 
+                // --- MODE B: HUNTING FOR A STRATEGY CROSSOVER ---
+                else {
+                    const minutesRemaining = Math.max(0, ((FOUR_HOURS_MS - elapsed) / 60000)).toFixed(1);
+                    console.log(`[Hunting: ${activeAsset}] Price: ${currentPrice} | Window: ${closePrices.length}/50 | Next shift in: ${minutesRemaining} mins`);
 
-                    if (isEmaCrossover && isNotOverbought) {
-                        const signal = `EMA_CROSSOVER_BUY`;
-                        const reason = `[${activeAsset}] Fast EMA (5) crossed above Slow EMA (13). RSI is at ${currentRSI.toFixed(1)}.`;
+                    if (closePrices.length >= 20) {
+                        const emaFastArray = EMA.calculate({ period: 5, values: closePrices });
+                        const emaSlowArray = EMA.calculate({ period: 13, values: closePrices });
+                        
+                        const currentEmaFast = emaFastArray[emaFastArray.length - 1];
+                        const currentEmaSlow = emaSlowArray[emaSlowArray.length - 1];
+                        const prevEmaFast = emaFastArray[emaFastArray.length - 2];
+                        const prevEmaSlow = emaSlowArray[emaSlowArray.length - 2];
 
-                        const executionRecord = {
-                            mode: CONFIG.DRY_RUN ? "DRY_RUN_SIMULATION" : "LIVE",
-                            asset: activeAsset,
-                            action: "BUY_LONG",
-                            executionPrice: currentPrice,
-                            indicators: {
-                                fastEma: currentEmaFast.toFixed(2),
-                                slowEma: currentEmaSlow.toFixed(2),
-                                rsi: currentRSI.toFixed(1)
-                            },
-                            status: "COMPLETED"
-                        };
+                        const rsiArray = RSI.calculate({ period: 14, values: closePrices });
+                        const currentRSI = rsiArray[rsiArray.length - 1];
 
-                        logAIDecision(signal, reason, executionRecord);
+                        const isEmaCrossover = (prevEmaFast <= prevEmaSlow) && (currentEmaFast > currentEmaSlow);
+                        const isNotOverbought = currentRSI < 65;
+
+                        if (isEmaCrossover && isNotOverbought) {
+                            const signal = `EMA_CROSSOVER_BUY`;
+                            const reason = `[${activeAsset}] Fast EMA (5) crossed above Slow EMA (13). RSI is at ${currentRSI.toFixed(1)}.`;
+
+                            // Calculate 2:1 Risk Parameters right now
+                            entryPrice = currentPrice;
+                            takeProfitPrice = entryPrice * 1.02; // +2% profit target
+                            stopLossPrice = entryPrice * 0.99;   // -1% protection target
+                            isHoldingPosition = true;            // Flip the switch to "Trade Active" mode
+
+                            const executionRecord = {
+                                mode: CONFIG.DRY_RUN ? "DRY_RUN_SIMULATION" : "LIVE",
+                                asset: activeAsset,
+                                action: "BUY_LONG",
+                                executionPrice: entryPrice,
+                                riskManagement: {
+                                    calculatedStopLoss: stopLossPrice.toFixed(2),
+                                    calculatedTakeProfit: takeProfitPrice.toFixed(2),
+                                    ratio: "2:1"
+                                },
+                                indicators: {
+                                    fastEma: currentEmaFast.toFixed(2),
+                                    slowEma: currentEmaSlow.toFixed(2),
+                                    rsi: currentRSI.toFixed(1)
+                                },
+                                status: "POSITION_OPENED"
+                            };
+
+                            logAIDecision(signal, reason, executionRecord);
+                        }
                     }
                 }
 
@@ -170,7 +203,6 @@ async function startTradingEngine() {
                 console.warn(`[Network Warning] Failed to fetch ticker: ${networkError.message}`);
             }
 
-            // Pause for your standard poll interval before checking the price again
             await new Promise(resolve => setTimeout(resolve, CONFIG.POLL_INTERVAL_MS));
         }
 
