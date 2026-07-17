@@ -58,6 +58,21 @@ console.log(`[Pinger] Firing self-ping to keep container awake...`);
     }, 600000); 
 }
 
+// 1. Place this dynamic function outside your engine
+function calculateDynamicAmount(exchange: any, asset: string, currentPrice: number, targetMarginUSD: number, leverage: number): number {
+    // Total buying power = Margin allocated * Leverage
+    const totalBuyingPower = targetMarginUSD * leverage;
+    const rawTokenAmount = totalBuyingPower / currentPrice;
+
+    // Use CCXT's native market metadata to truncate decimals correctly for WEEX
+    const market = exchange.market(asset);
+    
+    // exchange.amountToPrecision ensures the exchange won't reject your order due to decimal errors
+    const precisionAmountStr = exchange.amountToPrecision(asset, rawTokenAmount);
+    
+    return parseFloat(precisionAmountStr);
+}
+
 async function startTradingEngine() {
     const exchange = new ccxt.weex({
         'apiKey': process.env.WEEX_API_KEY,
@@ -84,6 +99,7 @@ async function startTradingEngine() {
         let entryPrice = 0;
         let takeProfitPrice = 0;
         let stopLossPrice = 0;
+        let tradeAmountUnits = 0;
         // ═════════════════════════════════════════════════════
 
         for (const asset of CONFIG.ACTIVE_ASSETS) {
@@ -123,29 +139,49 @@ async function startTradingEngine() {
                 closePrices.push(currentPrice);
                 if (closePrices.length > 50) { closePrices.shift(); }
 
-                // --- MODE A: MONITORING AN ACTIVE POSITION ---
-                if (isHoldingPosition) {
-                    console.log(`[TRADE ACTIVE: ${activeAsset}] Current: $${currentPrice} | TP: $${takeProfitPrice.toFixed(2)} | SL: $${stopLossPrice.toFixed(2)}`);
+              // --- MODE A: MONITORING AN ACTIVE POSITION ---
+if (isHoldingPosition) {
+    console.log(`[TRADE ACTIVE: ${activeAsset}] Current: $${currentPrice} | TP: $${takeProfitPrice.toFixed(2)} | SL: $${stopLossPrice.toFixed(2)}`);
 
-                    // 1. Check Take Profit Target
-                    if (currentPrice >= takeProfitPrice) {
-                        console.log(`\n💰💰💰 [TAKE PROFIT HIT] Closing position for ${activeAsset} at $${currentPrice}!`);
-                        
-                        // Real Order Logic would fire here if NOT dry run:
-                        // if (!CONFIG.DRY_RUN) { await exchange.createMarketSellOrder(activeAsset, size); }
+    // 1. Check Take Profit Target
+    if (currentPrice >= takeProfitPrice) {
+        console.log(`\n💰💰💰 [TAKE PROFIT HIT] Closing position for ${activeAsset} at $${currentPrice}!`);
+        
+        if (!CONFIG.DRY_RUN) {
+            try {
+                // Use the tracked units to close the position perfectly
+                await exchange.createMarketSellOrder(activeAsset, tradeAmountUnits);
+                console.log(`✅ Position fully exited into cash profit.`);
+            } catch (exitError: any) {
+                console.error(`❌ Critical: Failed to close position at profit target: ${exitError.message}`);
+            }
+        }
 
-                        isHoldingPosition = false; // Reset state
-                        closePrices = []; // Clear history to prepare fresh signals
-                    } 
-                    // 2. Check Stop Loss Target
-                    else if (currentPrice <= stopLossPrice) {
-                        console.log(`\n🛡️🛡️🛡️ [STOP LOSS HIT] Safeguarding funds. Closing ${activeAsset} at $${currentPrice}.`);
-                        
-                        isHoldingPosition = false; // Reset state
-                        closePrices = []; 
-                    }
+        // Reset tracking states
+        isHoldingPosition = false; 
+        tradeAmountUnits = 0; // Clear units
+        closePrices = []; 
+    } 
+    // 2. Check Stop Loss Target
+    else if (currentPrice <= stopLossPrice) {
+        console.log(`\n🛡️🛡️🛡️ [STOP LOSS HIT] Safeguarding funds. Closing ${activeAsset} at $${currentPrice}.`);
+        
+        if (!CONFIG.DRY_RUN) {
+            try {
+                // Use the tracked units to close the position perfectly
+                await exchange.createMarketSellOrder(activeAsset, tradeAmountUnits);
+                console.log(`🛡️ Position exited to prevent further loss.`);
+            } catch (exitError: any) {
+                console.error(`❌ Critical: Failed to execute stop loss order: ${exitError.message}`);
+            }
+        }
 
-                } 
+        // Reset tracking states
+        isHoldingPosition = false; 
+        tradeAmountUnits = 0; // Clear units
+        closePrices = []; 
+    }
+}
                 // --- MODE B: HUNTING FOR A STRATEGY CROSSOVER ---
                 else {
                     const minutesRemaining = Math.max(0, ((FOUR_HOURS_MS - elapsed) / 60000)).toFixed(1);
@@ -166,36 +202,88 @@ async function startTradingEngine() {
                         const isEmaCrossover = (prevEmaFast <= prevEmaSlow) && (currentEmaFast > currentEmaSlow);
                         const isNotOverbought = currentRSI < 65;
 
-                        if (isEmaCrossover && isNotOverbought) {
-                            const signal = `EMA_CROSSOVER_BUY`;
-                            const reason = `[${activeAsset}] Fast EMA (5) crossed above Slow EMA (13). RSI is at ${currentRSI.toFixed(1)}.`;
+                      if (isEmaCrossover && isNotOverbought) {
+    const signal = `EMA_CROSSOVER_BUY`;
+    const reason = `[${activeAsset}] Fast EMA (5) crossed above Slow EMA (13). RSI is at ${currentRSI.toFixed(1)}.`;
 
-                            // Calculate 2:1 Risk Parameters right now
-                            entryPrice = currentPrice;
-                            takeProfitPrice = entryPrice * 1.02; // +2% profit target
-                            stopLossPrice = entryPrice * 0.99;   // -1% protection target
-                            isHoldingPosition = true;            // Flip the switch to "Trade Active" mode
+    entryPrice = currentPrice;
+    takeProfitPrice = entryPrice * 1.02; // +2% target
+    stopLossPrice = entryPrice * 0.99;   // -1% protection
 
-                            const executionRecord = {
-                                mode: CONFIG.DRY_RUN ? "DRY_RUN_SIMULATION" : "LIVE",
-                                asset: activeAsset,
-                                action: "BUY_LONG",
-                                executionPrice: entryPrice,
-                                riskManagement: {
-                                    calculatedStopLoss: stopLossPrice.toFixed(2),
-                                    calculatedTakeProfit: takeProfitPrice.toFixed(2),
-                                    ratio: "2:1"
-                                },
-                                indicators: {
-                                    fastEma: currentEmaFast.toFixed(2),
-                                    slowEma: currentEmaSlow.toFixed(2),
-                                    rsi: currentRSI.toFixed(1)
-                                },
-                                status: "POSITION_OPENED"
-                            };
+    // 1. DYNAMIC BALANCE CHECKS: Query the exchange for your active futures wallet status
+    const balanceStructure = await exchange.fetchBalance({ 'type': 'swap' });
+    const availableUSDT = balanceStructure.free['USDT'] || 0;
+    
+    // 2. ALLOCATION RULE: Risk exactly 10% of your active wallet equity on this position
+    const dynamicMargin = availableUSDT * 0.10; 
 
-                            logAIDecision(signal, reason, executionRecord);
-                        }
+    if (dynamicMargin < 1) { // Safety buffer: Skip if your wallet has literally cents left
+        console.warn(`⚠️ Available futures balance is too low to trade ($${availableUSDT.toFixed(2)} USDT). Skipping trade.`);
+        continue;
+    }
+
+    // 3. PRECISION CALCULATIONS: Pass our metrics into your dynamic helper function
+    const tradeAmount = calculateDynamicAmount(
+        exchange, 
+        activeAsset, 
+        currentPrice, 
+        dynamicMargin, 
+        CONFIG.LEVERAGE_LIMIT
+    );
+
+    if (tradeAmount === 0) {
+        console.warn(`⚠️ Generated token unit amount is below exchange precision minimums for ${activeAsset}. Skipping.`);
+        continue;
+    }
+
+    let liveOrderId = "SIMULATED_ID";
+
+    // 4. LIVE TRANSACTION ENGINE
+    if (!CONFIG.DRY_RUN) {
+        try {
+            console.log(`📡 [EXECUTION] Firing LIVE Market Buy to WEEX: ${tradeAmount} units of ${activeAsset}`);
+            
+            // Firing actual market order to exchange orderbook
+            const order = await exchange.createMarketBuyOrder(activeAsset, tradeAmount);
+            liveOrderId = order.id;
+            
+            console.log(`🚀 [LIVE ORDER EXECUTION SUCCESS] ID: ${liveOrderId}`);
+        } catch (tradeError: any) {
+            console.error(`❌ [WEEX REJECTION] Order failed to register on exchange:`, tradeError.message);
+            isHoldingPosition = false; 
+            continue; // Skip this loop tick, don't trap the bot
+        }
+    } else {
+        console.log(`🧪 [DRY_RUN ACTIVE] Simulating entry at $${entryPrice} using $${dynamicMargin.toFixed(2)} margin for ${tradeAmount} units.`);
+    }
+
+    // 5. LOCK ONTO THE TRADE
+    isHoldingPosition = true; 
+    tradeAmountUnits = tradeAmount;
+
+    const executionRecord = {
+        mode: CONFIG.DRY_RUN ? "DRY_RUN_SIMULATION" : "LIVE",
+        orderId: liveOrderId,
+        asset: activeAsset,
+        action: "BUY_LONG",
+        allocatedMargin: dynamicMargin.toFixed(2),
+        amountUnits: tradeAmount,
+        executionPrice: entryPrice,
+        riskManagement: {
+            calculatedStopLoss: stopLossPrice.toFixed(2),
+            calculatedTakeProfit: takeProfitPrice.toFixed(2),
+            ratio: "2:1"
+        },
+        indicators: {
+            fastEma: currentEmaFast.toFixed(2),
+            slowEma: currentEmaSlow.toFixed(2),
+            rsi: currentRSI.toFixed(1)
+        },
+        status: "POSITION_OPENED"
+    };
+
+    logAIDecision(signal, reason, executionRecord);
+}
                     }
                 }
 
