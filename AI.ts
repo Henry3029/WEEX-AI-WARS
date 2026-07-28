@@ -81,13 +81,6 @@ async function startTradingEngine() {
         'timeout': 10000,
         'options': { 
             'defaultType': 'swap' 
-        },
-        'urls': {
-            'api': {
-                'public': 'https://api-demo.weex.com',
-                'private': 'https://api-demo.weex.com',
-                'swap': 'https://api-demo.weex.com',
-            }
         }
     });
 
