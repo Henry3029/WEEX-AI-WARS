@@ -27,7 +27,7 @@ const CONFIG = {
     LEVERAGE_LIMIT: 20,            // Strict compliance threshold
     POLL_INTERVAL_MS: 3000,         // Check prices every 3 seconds
 RENDER_URL: 'https://weex-ai-wars.onrender.com',
-DRY_RUN: true
+DRY_RUN: false 
 };
 
 
@@ -73,6 +73,7 @@ function calculateDynamicAmount(exchange: any, asset: string, currentPrice: numb
     return parseFloat(precisionAmountStr);
 }
 
+// ✅ FIXED CODE
 async function startTradingEngine() {
     const exchange = new ccxt.weex({
         'apiKey': process.env.WEEX_API_KEY,
@@ -81,6 +82,9 @@ async function startTradingEngine() {
         'timeout': 10000,
         'options': { 'defaultType': 'swap' }
     });
+
+    // ⚠️ ENABLE SANDBOX / DEMO MODE
+    exchange.setSandboxMode(true);
 
     try {
         console.log("╔══════════════════════════════════════════════════════╗");
