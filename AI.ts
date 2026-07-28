@@ -73,18 +73,23 @@ function calculateDynamicAmount(exchange: any, asset: string, currentPrice: numb
     return parseFloat(precisionAmountStr);
 }
 
-// ✅ FIXED CODE
 async function startTradingEngine() {
     const exchange = new ccxt.weex({
         'apiKey': process.env.WEEX_API_KEY,
         'secret': process.env.WEEX_SECRET_KEY,
         'password': process.env.WEEX_PASSPHRASE,
         'timeout': 10000,
-        'options': { 'defaultType': 'swap' }
+        'options': { 
+            'defaultType': 'swap' 
+        },
+        'urls': {
+            'api': {
+                'public': 'https://api-demo.weex.com',
+                'private': 'https://api-demo.weex.com',
+                'swap': 'https://api-demo.weex.com',
+            }
+        }
     });
-
-    // ⚠️ ENABLE SANDBOX / DEMO MODE
-    exchange.setSandboxMode(true);
 
     try {
         console.log("╔══════════════════════════════════════════════════════╗");
