@@ -27,7 +27,7 @@ const CONFIG = {
     LEVERAGE_LIMIT: 20,            // Strict compliance threshold
     POLL_INTERVAL_MS: 3000,         // Check prices every 3 seconds
 RENDER_URL: 'https://weex-ai-wars.onrender.com',
-DRY_RUN: false 
+DRY_RUN: true
 };
 
 
