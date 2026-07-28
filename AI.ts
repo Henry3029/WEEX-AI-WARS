@@ -214,7 +214,9 @@ if (isHoldingPosition) {
 
     // 1. DYNAMIC BALANCE CHECKS: Query the exchange for your active futures wallet status
     const balanceStructure = await exchange.fetchBalance({ 'type': 'swap' });
-    const availableUSDT = (balanceStructure.free as any)['USDT'] || 0;
+    // 🛠️ FOR TESTING: If CCXT returns 0 (due to live API key), fallback to your 20,000 Demo balance
+const fetchedBalance = (balanceStructure.free as any)['USDT'] || 0;
+const availableUSDT = fetchedBalance > 0 ? fetchedBalance : 20000;
     
     // 2. ALLOCATION RULE: Risk exactly 10% of your active wallet equity on this position
     const dynamicMargin = availableUSDT * 0.10; 
