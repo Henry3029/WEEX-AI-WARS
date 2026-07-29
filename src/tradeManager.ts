@@ -43,21 +43,37 @@ export async function processActivePosition(
     return createInitialPositionState();
   }
 
-  // 3. REAL-WORLD TIME-BASED TIMEOUT (WITH GUARDRAILS)
-  if (elapsedTimeMs >= CONFIG.MAX_HOLD_TIME_MS) {
-    // Guardrail: Only exit on time if price is stagnant/flat (-0.5% to +1.0%).
-    // If it's climbing strong (+1.8%), let it ride toward TP!
-    const isStagnant = priceChangePct >= -0.5 && priceChangePct <= 1.0;
+  // 3. REAL-WORLD TIME-BASED TIMEOUT (WITH HARD CAP GUARDRAIL)
+  const HARD_TIMEOUT_MS = 8 * 60 * 60 * 1000; // 8 hours absolute max limit
 
+  if (elapsedTimeMs >= CONFIG.MAX_HOLD_TIME_MS) {
+    const isStagnant = priceChangePct >= -0.5 && priceChangePct <= 1.0;
+    const reachedHardCap = elapsedTimeMs >= HARD_TIMEOUT_MS;
+
+    // A. Exit if price is flat/stagnant after 6 hours
     if (isStagnant) {
       console.log(
-        `\n⏳ [TIME TIMEOUT] Trade held for ${hoursHeld} hours with minimal movement (${priceChangePct.toFixed(2)}%). ` +
+        `\n⏳ [TIME TIMEOUT] Trade held for ${hoursHeld}h with stagnant movement (${priceChangePct.toFixed(2)}%). ` +
         `Closing position to release capital.`
       );
       await executeSell(exchange, activeAsset, tradeAmountUnits, "TIME_TIMEOUT_STAGNANT");
       return createInitialPositionState();
-    } else {
-      console.log(`\n⚠️ [TIMEOUT PASSED] 6h elapsed, but trade is trending (${priceChangePct.toFixed(2)}%). Staying in position.`);
+    } 
+    // B. Hard Exit if 8 hours total pass (prevents infinite hanging near TP)
+    else if (reachedHardCap) {
+      console.log(
+        `\n🛑 [HARD TIMEOUT] Reached maximum 8-hour cap at ${priceChangePct.toFixed(2)}%. ` +
+        `Exiting position at market price.`
+      );
+      await executeSell(exchange, activeAsset, tradeAmountUnits, "HARD_TIMEOUT_REACHED");
+      return createInitialPositionState();
+    } 
+    // C. Price is > +1.0% and under 8 hours -> Keep holding for TP!
+    else {
+      console.log(
+        `⚠️ [TIMEOUT EXTENDED] Trade held ${hoursHeld}h, but price is trending (+${priceChangePct.toFixed(2)}%). ` +
+        `Allowing extended hold up to 8h cap.`
+      );
     }
   }
 
