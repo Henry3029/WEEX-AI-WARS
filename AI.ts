@@ -76,16 +76,13 @@ async function startTradingEngine() {
         const activeAsset = CONFIG.ACTIVE_ASSETS[currentAssetIndex];
         const elapsed = Date.now() - assetStartTime;
 
-        // 4-Hour Pivot Rule
+        // 4-Hour Shift Window for Hunting Mode
         if (elapsed >= FOUR_HOURS_MS && !position.isHoldingPosition) {
           console.log(`\n🔄 [Pivot Alarm] 4 hours elapsed! Switching focus...`);
           currentAssetIndex = (currentAssetIndex + 1) % CONFIG.ACTIVE_ASSETS.length;
           closePrices = [];
           assetStartTime = Date.now();
           continue;
-        } else if (elapsed >= FOUR_HOURS_MS && position.isHoldingPosition) {
-          console.log(`⚠️ [Pivot Delayed] Holding active trade on ${activeAsset}. Postponing shift.`);
-          assetStartTime = Date.now();
         }
 
         // Ticker Fetch
@@ -96,7 +93,17 @@ async function startTradingEngine() {
 
         // --- MODE A: MONITORING ACTIVE POSITION ---
         if (position.isHoldingPosition) {
+          const wasHolding = position.isHoldingPosition;
           position = await processActivePosition(exchange, position, currentPrice);
+
+          // 💡 FIX: If position just closed (TP, SL, or Timeout), IMMEDIATELY pivot to next asset!
+          if (wasHolding && !position.isHoldingPosition) {
+            console.log(`\n🔄 [Post-Trade Pivot] Trade finished. Rotating to next asset in list...`);
+            currentAssetIndex = (currentAssetIndex + 1) % CONFIG.ACTIVE_ASSETS.length;
+            closePrices = [];
+            assetStartTime = Date.now();
+            continue;
+          }
         } 
         // --- MODE B: HUNTING FOR STRATEGY CROSSOVER ---
         else {
@@ -139,7 +146,7 @@ async function startTradingEngine() {
               takeProfitPrice,
               stopLossPrice,
               tradeAmountUnits: tradeAmount,
-              entryTime: Date.now() // Timestamp recorded for 6-hour timeout
+              entryTime: Date.now()
             };
 
             logAIDecision('EMA_CROSSOVER_BUY', signal.reason, {
