@@ -67,7 +67,7 @@ async function startTradingEngine() {
     let currentAssetIndex = 0;
     let closePrices: number[] = [];
     let assetStartTime = Date.now();
-    const FOUR_HOURS_MS = 4 * 60 * 60 * 1000;
+    const THREE_HOURS_MS = 3 * 60 * 60 * 1000; // Updated to 3 hours as requested
 
     let position = createInitialPositionState();
 
@@ -76,13 +76,17 @@ async function startTradingEngine() {
         const activeAsset = CONFIG.ACTIVE_ASSETS[currentAssetIndex];
         const elapsed = Date.now() - assetStartTime;
 
-        // 4-Hour Shift Window for Hunting Mode
-        if (elapsed >= FOUR_HOURS_MS && !position.isHoldingPosition) {
-          console.log(`\n🔄 [Pivot Alarm] 4 hours elapsed! Switching focus...`);
+        // 3-Hour Pivot Rule
+        if (elapsed >= THREE_HOURS_MS && !position.isHoldingPosition) {
+          console.log(`\n🔄 [Pivot Alarm] 3 hours elapsed! Switching focus...`);
           currentAssetIndex = (currentAssetIndex + 1) % CONFIG.ACTIVE_ASSETS.length;
           closePrices = [];
           assetStartTime = Date.now();
           continue;
+        } else if (elapsed >= THREE_HOURS_MS && position.isHoldingPosition) {
+          console.log(`⚠️ [Pivot Delayed] Holding active trade on ${activeAsset}. Postponing shift.`);
+          // NOTE: assetStartTime is intentionally NOT reset here so that once the trade closes,
+          // the bot will pivot to the next asset immediately on the next loop iteration.
         }
 
         // Ticker Fetch
@@ -93,21 +97,11 @@ async function startTradingEngine() {
 
         // --- MODE A: MONITORING ACTIVE POSITION ---
         if (position.isHoldingPosition) {
-          const wasHolding = position.isHoldingPosition;
           position = await processActivePosition(exchange, position, currentPrice);
-
-          // 💡 FIX: If position just closed (TP, SL, or Timeout), IMMEDIATELY pivot to next asset!
-          if (wasHolding && !position.isHoldingPosition) {
-            console.log(`\n🔄 [Post-Trade Pivot] Trade finished. Rotating to next asset in list...`);
-            currentAssetIndex = (currentAssetIndex + 1) % CONFIG.ACTIVE_ASSETS.length;
-            closePrices = [];
-            assetStartTime = Date.now();
-            continue;
-          }
         } 
         // --- MODE B: HUNTING FOR STRATEGY CROSSOVER ---
         else {
-          const minsRemaining = Math.max(0, ((FOUR_HOURS_MS - elapsed) / 60000)).toFixed(1);
+          const minsRemaining = Math.max(0, ((THREE_HOURS_MS - elapsed) / 60000)).toFixed(1);
           console.log(`[Hunting: ${activeAsset}] Price: ${currentPrice} | Window: ${closePrices.length}/50 | Next shift: ${minsRemaining} mins`);
 
           const signal = evaluateStrategy(closePrices, activeAsset);
