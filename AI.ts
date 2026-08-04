@@ -84,7 +84,7 @@ async function startTradingEngine() {
           assetStartTime = Date.now();
           continue;
         } else if (elapsed >= THREE_HOURS_MS && position.isHoldingPosition) {
-          console.log(`⚠️ [Pivot Delayed] Holding active trade on ${activeAsset}. Postponing shift.`);
+          console.log(`⚠️ [Pivoting] Holding active trade on ${activeAsset}. Postponing shift.`);
           // NOTE: assetStartTime is intentionally NOT reset here so that once the trade closes,
           // the bot will pivot to the next asset immediately on the next loop iteration.
         }
@@ -108,7 +108,7 @@ async function startTradingEngine() {
 
           if (signal.isSignal) {
             const entryPrice = currentPrice;
-            const takeProfitPrice = entryPrice * 1.02; // +2%
+            const takeProfitPrice = entryPrice * 1.01; // +1%
             const stopLossPrice = entryPrice * 0.99;   // -1%
 
             const balanceStructure = await exchange.fetchBalance({ 'type': 'swap' });
