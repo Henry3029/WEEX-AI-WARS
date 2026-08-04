@@ -1,8 +1,7 @@
 import { TradeConfig } from './types';
 
 export const CONFIG: TradeConfig = {
-  ACTIVE_ASSETS: [
-    'SOL/USDT:USDT', 
+  ACTIVE_ASSETS: [ 
     'DOGE/USDT:USDT', 
     'XRP/USDT:USDT',
     'ETH/USDT:USDT',   // Added Volatile Asset 4
