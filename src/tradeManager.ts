@@ -23,56 +23,43 @@ export async function processActivePosition(
   const elapsedTimeMs = Date.now() - entryTime;
   const hoursHeld = (elapsedTimeMs / (1000 * 60 * 60)).toFixed(2);
   const priceChangePct = ((currentPrice - entryPrice) / entryPrice) * 100;
+  const leveragePnL = priceChangePct * 20; // Return on Equity for 20x Leverage
 
   console.log(
     `[TRADE ACTIVE: ${activeAsset}] Current: $${currentPrice} | TP: $${takeProfitPrice.toFixed(2)} | ` +
-    `SL: $${stopLossPrice.toFixed(2)} | PnL: ${priceChangePct.toFixed(2)}% | Held: ${hoursHeld}h`
+    `SL: $${stopLossPrice.toFixed(2)} | PnL: ${priceChangePct.toFixed(2)}% (ROE: ${leveragePnL.toFixed(1)}%) | Held: ${hoursHeld}h`
   );
 
-  // 1. CHECK TAKE PROFIT
+  // 1. CHECK TAKE PROFIT (Triggers at +1.0% Price Move set in index.ts)
   if (currentPrice >= takeProfitPrice) {
-    console.log(`\n💰💰💰 [TAKE PROFIT HIT] Closing position for ${activeAsset} at $${currentPrice}!`);
+    console.log(`\n💰💰💰 [TAKE PROFIT HIT] Target reached for ${activeAsset} at $${currentPrice}!`);
     await executeSell(exchange, activeAsset, tradeAmountUnits, "TAKE_PROFIT_HIT");
     return createInitialPositionState();
   }
 
-  // 2. CHECK STOP LOSS
+  // 2. CHECK STOP LOSS (Triggers at -1.0% Price Move set in index.ts)
   if (currentPrice <= stopLossPrice) {
     console.log(`\n🛡️🛡️🛡️ [STOP LOSS HIT] Safeguarding funds. Closing ${activeAsset} at $${currentPrice}.`);
     await executeSell(exchange, activeAsset, tradeAmountUnits, "STOP_LOSS_HIT");
     return createInitialPositionState();
   }
 
-  // 3. REAL-WORLD TIME-BASED TIMEOUT (WITH HARD CAP GUARDRAIL)
-  const HARD_TIMEOUT_MS = 8 * 60 * 60 * 1000; // 8 hours absolute max limit
-
+  // 3. SOFT TIMEOUT EXIT (AFTER 3 HOURS)
+  // Waits until price bounces to at least +0.15% gain to cover exchange fees before closing
   if (elapsedTimeMs >= CONFIG.MAX_HOLD_TIME_MS) {
-    const isStagnant = priceChangePct >= -0.5 && priceChangePct <= 1.0;
-    const reachedHardCap = elapsedTimeMs >= HARD_TIMEOUT_MS;
+    const minSoftExitPrice = entryPrice * 1.0015; // +0.15% price target (covers ~0.12% fees)
 
-    // A. Exit if price is flat/stagnant after 6 hours
-    if (isStagnant) {
+    if (currentPrice >= minSoftExitPrice) {
       console.log(
-        `\n⏳ [TIME TIMEOUT] Trade held for ${hoursHeld}h with stagnant movement (${priceChangePct.toFixed(2)}%). ` +
-        `Closing position to release capital.`
+        `\n⏳ [SOFT TIMEOUT EXIT] Held for ${hoursHeld}h and price reached +${priceChangePct.toFixed(2)}%. ` +
+        `Closing position in profit to release capital.`
       );
-      await executeSell(exchange, activeAsset, tradeAmountUnits, "TIME_TIMEOUT_STAGNANT");
+      await executeSell(exchange, activeAsset, tradeAmountUnits, "SOFT_TIMEOUT_PROFIT");
       return createInitialPositionState();
-    } 
-    // B. Hard Exit if 8 hours total pass (prevents infinite hanging near TP)
-    else if (reachedHardCap) {
+    } else {
       console.log(
-        `\n🛑 [HARD TIMEOUT] Reached maximum 8-hour cap at ${priceChangePct.toFixed(2)}%. ` +
-        `Exiting position at market price.`
-      );
-      await executeSell(exchange, activeAsset, tradeAmountUnits, "HARD_TIMEOUT_REACHED");
-      return createInitialPositionState();
-    } 
-    // C. Price is > +1.0% and under 8 hours -> Keep holding for TP!
-    else {
-      console.log(
-        `⚠️ [TIMEOUT EXTENDED] Trade held ${hoursHeld}h, but price is trending (+${priceChangePct.toFixed(2)}%). ` +
-        `Allowing extended hold up to 8h cap.`
+        `⏳ [SOFT EXIT WAITING] Held ${hoursHeld}h (Price: ${priceChangePct.toFixed(2)}%). ` +
+        `Waiting for price to reach +0.15% ($${minSoftExitPrice.toFixed(4)}) before closing...`
       );
     }
   }
