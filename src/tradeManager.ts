@@ -30,7 +30,7 @@ export async function processActivePosition(
     `SL: $${stopLossPrice.toFixed(4)} | PnL: ${priceChangePct.toFixed(2)}% (ROE: ${leveragePnL.toFixed(1)}%) | Held: ${hoursHeld}h`
   );
 
-  // 1. CHECK TAKE PROFIT (+0.20% Price Move)
+  // 1. CHECK TAKE PROFIT (+0.20% Price Move.)
   if (currentPrice >= takeProfitPrice) {
     console.log(`\n💰💰💰 [TAKE PROFIT HIT] Target reached for ${activeAsset} at $${currentPrice} (+0.20% Price Gain)!`);
     await executeSell(exchange, activeAsset, tradeAmountUnits, "TAKE_PROFIT_HIT");
