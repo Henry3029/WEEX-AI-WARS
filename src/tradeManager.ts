@@ -23,31 +23,30 @@ export async function processActivePosition(
   const elapsedTimeMs = Date.now() - entryTime;
   const hoursHeld = (elapsedTimeMs / (1000 * 60 * 60)).toFixed(2);
   const priceChangePct = ((currentPrice - entryPrice) / entryPrice) * 100;
-  const leveragePnL = priceChangePct * 20; // Return on Equity for 20x Leverage
+  const leveragePnL = priceChangePct * 20; // ROE for 20x Leverage
 
   console.log(
-    `[TRADE ACTIVE: ${activeAsset}] Current: $${currentPrice} | TP: $${takeProfitPrice.toFixed(2)} | ` +
-    `SL: $${stopLossPrice.toFixed(2)} | PnL: ${priceChangePct.toFixed(2)}% (ROE: ${leveragePnL.toFixed(1)}%) | Held: ${hoursHeld}h`
+    `[TRADE ACTIVE: ${activeAsset}] Current: $${currentPrice} | TP: $${takeProfitPrice.toFixed(4)} | ` +
+    `SL: $${stopLossPrice.toFixed(4)} | PnL: ${priceChangePct.toFixed(2)}% (ROE: ${leveragePnL.toFixed(1)}%) | Held: ${hoursHeld}h`
   );
 
-  // 1. CHECK TAKE PROFIT (Triggers at +1.0% Price Move set in index.ts)
+  // 1. CHECK TAKE PROFIT (+0.20% Price Move)
   if (currentPrice >= takeProfitPrice) {
-    console.log(`\n💰💰💰 [TAKE PROFIT HIT] Target reached for ${activeAsset} at $${currentPrice}!`);
+    console.log(`\n💰💰💰 [TAKE PROFIT HIT] Target reached for ${activeAsset} at $${currentPrice} (+0.20% Price Gain)!`);
     await executeSell(exchange, activeAsset, tradeAmountUnits, "TAKE_PROFIT_HIT");
     return createInitialPositionState();
   }
 
-  // 2. CHECK STOP LOSS (Triggers at -1.0% Price Move set in index.ts)
+  // 2. CHECK STOP LOSS (-1.00% Price Move)
   if (currentPrice <= stopLossPrice) {
     console.log(`\n🛡️🛡️🛡️ [STOP LOSS HIT] Safeguarding funds. Closing ${activeAsset} at $${currentPrice}.`);
     await executeSell(exchange, activeAsset, tradeAmountUnits, "STOP_LOSS_HIT");
     return createInitialPositionState();
   }
 
-  // 3. SOFT TIMEOUT EXIT (AFTER 3 HOURS)
-  // Waits until price bounces to at least +0.15% gain to cover exchange fees before closing
+  // 3. SOFT TIMEOUT EXIT (AFTER 3 HOURS pass & Price reaches +0.15%)
   if (elapsedTimeMs >= CONFIG.MAX_HOLD_TIME_MS) {
-    const minSoftExitPrice = entryPrice * 1.0015; // +0.15% price target (covers ~0.12% fees)
+    const minSoftExitPrice = entryPrice * 1.0015; // +0.15% price target (covers fees)
 
     if (currentPrice >= minSoftExitPrice) {
       console.log(
@@ -80,4 +79,4 @@ async function executeSell(exchange: any, asset: string, units: number, reason: 
   }
 
   logAIDecision(reason, `Exited ${asset} position.`, { asset, units, mode: CONFIG.DRY_RUN ? 'DRY_RUN' : 'LIVE' });
-}
+      }
