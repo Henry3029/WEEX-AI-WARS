@@ -108,7 +108,7 @@ async function startTradingEngine() {
 
           if (signal.isSignal) {
             const entryPrice = currentPrice;
-            const takeProfitPrice = entryPrice * 1.01; // +1%
+            const takeProfitPrice = entryPrice * 1.002; // +0.20%
             const stopLossPrice = entryPrice * 0.99;   // -1%
 
             const balanceStructure = await exchange.fetchBalance({ 'type': 'swap' });
