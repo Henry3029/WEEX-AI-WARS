@@ -7,6 +7,7 @@ import { CONFIG } from './src/config';
 import { evaluateStrategy, calculateDynamicAmount } from './src/strategy';
 import { createInitialPositionState, processActivePosition } from './src/tradeManager';
 import { logAIDecision } from './src/utils/logger';
+import { PositionState } from './src/types';
 
 dotenv.config();
 
@@ -42,6 +43,45 @@ function startSelfPinger() {
   }, 600000);
 }
 
+/**
+ * HELPER: Direct Exchange Query to Re-Hydrate Open Positions
+ * Protects against memory wipes on Render restarts/re-deploys.
+ */
+async function syncOpenExchangePosition(exchange: any): Promise<PositionState | null> {
+  try {
+    const positions = await exchange.fetchPositions();
+    if (!positions || !Array.isArray(positions)) return null;
+
+    // Find any position where contract/size size is strictly > 0
+    const active = positions.find((p: any) => {
+      const size = parseFloat(p.contracts || p.size || p.amount || 0);
+      return size > 0;
+    });
+
+    if (active) {
+      const symbol = active.symbol;
+      const entryPrice = parseFloat(active.entryPrice || active.price || 0);
+      const units = parseFloat(active.contracts || active.size || active.amount || 0);
+
+      if (entryPrice > 0 && units > 0) {
+        console.log(`\n🔍 [EXCHANGE SYNC DETECTED] Found active live trade on WEEX: ${units} units of ${symbol} @ $${entryPrice}`);
+        return {
+          isHoldingPosition: true,
+          activeAsset: symbol,
+          entryPrice: entryPrice,
+          takeProfitPrice: entryPrice * 1.002, // Re-establish TP (+0.20%)
+          stopLossPrice: entryPrice * 0.9900,  // Re-establish SL (-1.00%)
+          tradeAmountUnits: units,
+          entryTime: Date.now() // Timestamp fallback
+        };
+      }
+    }
+  } catch (err: any) {
+    console.warn(`[Sync Check Warning] Could not sync positions from WEEX: ${err.message}`);
+  }
+  return null;
+}
+
 // Main Trading Loop
 async function startTradingEngine() {
   const exchange = new ccxt.weex({
@@ -67,16 +107,30 @@ async function startTradingEngine() {
     let currentAssetIndex = 0;
     let closePrices: number[] = [];
     let assetStartTime = Date.now();
-    const THREE_HOURS_MS = 3 * 60 * 60 * 1000; // Updated to 3 hours as requested
+    const THREE_HOURS_MS = 3 * 60 * 60 * 1000;
 
     let position = createInitialPositionState();
 
     while (true) {
       try {
-        const activeAsset = CONFIG.ACTIVE_ASSETS[currentAssetIndex];
+        // --- STEP 1: RE-SYNC EXCHANGE POSITIONS IF LOCAL STATE IS EMPTY ---
+        if (!position.isHoldingPosition && !CONFIG.DRY_RUN) {
+          const syncedPosition = await syncOpenExchangePosition(exchange);
+          if (syncedPosition) {
+            position = syncedPosition;
+            
+            // Adjust current asset index to match the active position's symbol
+            const matchingIndex = CONFIG.ACTIVE_ASSETS.findIndex(a => a === position.activeAsset);
+            if (matchingIndex !== -1) {
+              currentAssetIndex = matchingIndex;
+            }
+          }
+        }
+
+        const activeAsset = position.isHoldingPosition ? position.activeAsset : CONFIG.ACTIVE_ASSETS[currentAssetIndex];
         const elapsed = Date.now() - assetStartTime;
 
-        // 3-Hour Pivot Rule
+        // --- STEP 2: PIVOT CONTROL ---
         if (elapsed >= THREE_HOURS_MS && !position.isHoldingPosition) {
           console.log(`\n🔄 [Pivot Alarm] 3 hours elapsed! Switching focus...`);
           currentAssetIndex = (currentAssetIndex + 1) % CONFIG.ACTIVE_ASSETS.length;
@@ -84,12 +138,10 @@ async function startTradingEngine() {
           assetStartTime = Date.now();
           continue;
         } else if (elapsed >= THREE_HOURS_MS && position.isHoldingPosition) {
-          console.log(`⚠️ [Pivoting] Holding active trade on ${activeAsset}. Postponing shift.`);
-          // NOTE: assetStartTime is intentionally NOT reset here so that once the trade closes,
-          // the bot will pivot to the next asset immediately on the next loop iteration.
+          console.log(`⚠️ [Pivoting Postponed] Holding active trade on ${activeAsset}.`);
         }
 
-        // Ticker Fetch
+        // --- STEP 3: TICKER FETCH ---
         const ticker = await exchange.fetchTicker(activeAsset);
         const currentPrice = ticker.last as number;
         closePrices.push(currentPrice);
@@ -113,10 +165,14 @@ async function startTradingEngine() {
 
             const balanceStructure = await exchange.fetchBalance({ 'type': 'swap' });
             const fetchedBalance = (balanceStructure.free as any)['USDT'] || 0;
-            const availableUSDT = fetchedBalance > 0 ? fetchedBalance : 20000;
+            const availableUSDT = fetchedBalance > 0 ? fetchedBalance : (CONFIG.DRY_RUN ? 20000 : 0);
 
             const dynamicMargin = availableUSDT * 0.10;
-            if (dynamicMargin < 1) continue;
+            if (dynamicMargin < 1) {
+              console.log(`⚠️ Balance check: Dynamic margin ($${dynamicMargin.toFixed(2)}) is below safety limit ($1.00). Skipping trade.`);
+              await new Promise(resolve => setTimeout(resolve, CONFIG.POLL_INTERVAL_MS));
+              continue;
+            }
 
             const tradeAmount = calculateDynamicAmount(exchange, activeAsset, currentPrice, dynamicMargin, CONFIG.LEVERAGE_LIMIT);
             if (tradeAmount === 0) continue;
@@ -133,6 +189,7 @@ async function startTradingEngine() {
               }
             }
 
+            // Assign matching properties for tradeManager.ts
             position = {
               isHoldingPosition: true,
               activeAsset,
