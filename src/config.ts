@@ -2,7 +2,6 @@ import { TradeConfig } from './types';
 
 export const CONFIG: TradeConfig = {
   ACTIVE_ASSETS: [ 
-    'BTW/USDT:USDT',
     'DOGE/USDT:USDT', 
     'XRP/USDT:USDT',
     'ETH/USDT:USDT',   // Added Volatile Asset 4
