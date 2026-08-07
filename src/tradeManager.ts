@@ -69,7 +69,11 @@ export async function processActivePosition(
 async function executeSell(exchange: any, asset: string, units: number, reason: string) {
   if (!CONFIG.DRY_RUN) {
     try {
-      await exchange.createMarketSellOrder(asset, units);
+      // ✅ New Code (Forces WEEX to ONLY close your existing Long position)
+await exchange.createMarketSellOrder(asset, units, {
+  'reduceOnly': true,      // Tells the exchange to only reduce/close the active trade
+  'positionSide': 'LONG'   // Targets your active Long position
+});
       console.log(`✅ [LIVE SELL SUCCESS] Exit Reason: ${reason}`);
     } catch (exitError: any) {
       console.error(`❌ Critical: Failed to execute sell order: ${exitError.message}`);
