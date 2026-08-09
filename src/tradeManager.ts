@@ -44,21 +44,21 @@ export async function processActivePosition(
     return createInitialPositionState();
   }
 
-  // 3. SOFT TIMEOUT EXIT (AFTER 3 HOURS pass & Price reaches +0.15%)
+  // 3. Medium TIMEOUT EXIT (AFTER 4 HOURS pass & Price reaches +1.00%)
   if (elapsedTimeMs >= CONFIG.MAX_HOLD_TIME_MS) {
-    const minSoftExitPrice = entryPrice * 1.0015; // +0.15% price target (covers fees)
+    const minSoftExitPrice = entryPrice * 1.0100; // +1.00% price target.
 
     if (currentPrice >= minSoftExitPrice) {
       console.log(
-        `\n⏳ [SOFT TIMEOUT EXIT] Held for ${hoursHeld}h and price reached +${priceChangePct.toFixed(2)}%. ` +
+        `\n⏳ [Medium TIMEOUT EXIT] Held for ${hoursHeld}h and price reached +${priceChangePct.toFixed(2)}%. ` +
         `Closing position in profit to release capital.`
       );
       await executeSell(exchange, activeAsset, tradeAmountUnits, "SOFT_TIMEOUT_PROFIT");
       return createInitialPositionState();
     } else {
       console.log(
-        `⏳ [SOFT EXIT WAITING] Held ${hoursHeld}h (Price: ${priceChangePct.toFixed(2)}%). ` +
-        `Waiting for price to reach +0.15% ($${minSoftExitPrice.toFixed(4)}) before closing...`
+        `⏳ [Medium EXIT WAITING] Held ${hoursHeld}h (Price: ${priceChangePct.toFixed(2)}%). ` +
+        `Waiting for price to reach +1.00% ($${minSoftExitPrice.toFixed(4)}) before closing...`
       );
     }
   }
