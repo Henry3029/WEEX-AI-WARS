@@ -30,35 +30,61 @@ export async function processActivePosition(
     `SL: $${stopLossPrice.toFixed(4)} | PnL: ${priceChangePct.toFixed(2)}% (ROE: ${leveragePnL.toFixed(1)}%) | Held: ${hoursHeld}h`
   );
 
-  // 1. CHECK TAKE PROFIT (+0.20% Price Move.)
+  // -------------------------------------------------------------
+  // ALWAYS ACTIVE: IMMEDIATE HARD TARGETS
+  // -------------------------------------------------------------
+
+  // 1. HARD TAKE PROFIT
   if (currentPrice >= takeProfitPrice) {
-    console.log(`\n💰💰💰 [TAKE PROFIT HIT] Target reached for ${activeAsset} at $${currentPrice} (+0.20% Price Gain)!`);
+    console.log(`\n💰💰💰 [TAKE PROFIT HIT] Target reached for ${activeAsset} at $${currentPrice}!`);
     await executeSell(exchange, activeAsset, tradeAmountUnits, "TAKE_PROFIT_HIT");
     return createInitialPositionState();
   }
 
-  // 2. CHECK STOP LOSS (-1.00% Price Move)
+  // 2. HARD STOP LOSS (-1.00% Safeguard)
   if (currentPrice <= stopLossPrice) {
     console.log(`\n🛡️🛡️🛡️ [STOP LOSS HIT] Safeguarding funds. Closing ${activeAsset} at $${currentPrice}.`);
     await executeSell(exchange, activeAsset, tradeAmountUnits, "STOP_LOSS_HIT");
     return createInitialPositionState();
   }
 
-  // 3. Medium TIMEOUT EXIT (AFTER 4 HOURS pass & Price reaches +1.00%)
-  if (elapsedTimeMs >= CONFIG.MAX_HOLD_TIME_MS) {
-    const minSoftExitPrice = entryPrice * 1.0100; // +1.00% price target.
+  // -------------------------------------------------------------
+  // TIME-BASED CASCADING EXITS
+  // -------------------------------------------------------------
+  const MAIN_TIMEOUT_MS = CONFIG.MAX_HOLD_TIME_MS; // e.g. 4 hours
+  const MEDIUM_TIMEOUT_MS = CONFIG.MEDIUM_HOLD_TIME_MS || (MAIN_TIMEOUT_MS + (3 * 60 * 60 * 1000)); // 4h + 3h = 7h
 
-    if (currentPrice >= minSoftExitPrice) {
+  // TIER 3: MEDIUM TIMEOUT PASSED (7+ Hours) -> INFINITE SOFT EXIT HOLD
+  if (elapsedTimeMs >= MEDIUM_TIMEOUT_MS) {
+    const softExitPrice = entryPrice * 1.0020; // +0.20% Soft Profit Target
+
+    if (currentPrice >= softExitPrice) {
       console.log(
-        `\n⏳ [Medium TIMEOUT EXIT] Held for ${hoursHeld}h and price reached +${priceChangePct.toFixed(2)}%. ` +
-        `Closing position in profit to release capital.`
+        `\n⏳ [SOFT EXIT / FINAL VERDICT] Held for ${hoursHeld}h (Past Medium Timeout). ` +
+        `Price reached +0.20% target ($${currentPrice}). Exiting in profit!`
       );
       await executeSell(exchange, activeAsset, tradeAmountUnits, "SOFT_TIMEOUT_PROFIT");
       return createInitialPositionState();
     } else {
       console.log(
-        `⏳ [Medium EXIT WAITING] Held ${hoursHeld}h (Price: ${priceChangePct.toFixed(2)}%). ` +
-        `Waiting for price to reach +1.00% ($${minSoftExitPrice.toFixed(4)}) before closing...`
+        `⏳ [INFINITE HOLD / SOFT WAITING] Held ${hoursHeld}h (Past Medium Timeout). ` +
+        `Holding indefinitely until price hits +0.20% ($${softExitPrice.toFixed(4)}) or Stop Loss...`
+      );
+    }
+  } 
+  // TIER 2: MAIN TIMEOUT PASSED (4 to 7 Hours) -> LOOKING FOR +1.00%
+  else if (elapsedTimeMs >= MAIN_TIMEOUT_MS) {
+    const mainTimeoutPrice = entryPrice * 1.0100; // +1.00% Target
+
+    if (currentPrice >= mainTimeoutPrice) {
+      console.log(
+        `\n⏳ [MAIN TIMEOUT EXIT] Held for ${hoursHeld}h and reached +1.00% ($${currentPrice}). Closing to release capital.`
+      );
+      await executeSell(exchange, activeAsset, tradeAmountUnits, "MAIN_TIMEOUT_PROFIT");
+      return createInitialPositionState();
+    } else {
+      console.log(
+        `⏳ [MEDIUM TIMEOUT ACTIVE] Held ${hoursHeld}h. Waiting for +1.00% ($${mainTimeoutPrice.toFixed(4)}) before Medium Timeout...`
       );
     }
   }
@@ -69,11 +95,11 @@ export async function processActivePosition(
 async function executeSell(exchange: any, asset: string, units: number, reason: string) {
   if (!CONFIG.DRY_RUN) {
     try {
-      // ✅ New Code (Forces WEEX to ONLY close your existing Long position)
-await exchange.createMarketSellOrder(asset, units, {
-  'reduceOnly': true,      // Tells the exchange to only reduce/close the active trade
-  'positionSide': 'LONG'   // Targets your active Long position
-});
+      // ✅ Forces WEEX to ONLY close your active Long position
+      await exchange.createMarketSellOrder(asset, units, {
+        'reduceOnly': true,      // Tells exchange to only reduce/close open trade
+        'positionSide': 'LONG'   // Targets active Long position
+      });
       console.log(`✅ [LIVE SELL SUCCESS] Exit Reason: ${reason}`);
     } catch (exitError: any) {
       console.error(`❌ Critical: Failed to execute sell order: ${exitError.message}`);
@@ -83,4 +109,4 @@ await exchange.createMarketSellOrder(asset, units, {
   }
 
   logAIDecision(reason, `Exited ${asset} position.`, { asset, units, mode: CONFIG.DRY_RUN ? 'DRY_RUN' : 'LIVE' });
-      }
+}
