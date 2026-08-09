@@ -69,7 +69,7 @@ async function syncOpenExchangePosition(exchange: any): Promise<PositionState | 
           isHoldingPosition: true,
           activeAsset: symbol,
           entryPrice: entryPrice,
-          takeProfitPrice: entryPrice * 1.002, // Re-establish TP (+0.20%)
+          takeProfitPrice: entryPrice * 1.0200, // Re-establish TP (+2.00%)
           stopLossPrice: entryPrice * 0.9900,  // Re-establish SL (-1.00%)
           tradeAmountUnits: units,
           entryTime: Date.now() // Timestamp fallback
