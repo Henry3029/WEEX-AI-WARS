@@ -4,7 +4,20 @@ import { logAIDecision } from './utils/logger';
 
 export interface ExtendedPositionState extends PositionState {
   hasTakenPartialProfit?: boolean;
-  highestPriceSinceEntry?: number; // Tracks highest price hit during trade for Trailing Stop
+  highestPriceSinceEntry?: number;
+}
+
+// Helper to format milliseconds into readable "0h 12m 30s" or "45m 10s"
+function formatDuration(ms: number): string {
+  if (ms <= 0) return '0m 0s';
+  const seconds = Math.floor((ms / 1000) % 60);
+  const minutes = Math.floor((ms / (1000 * 60)) % 60);
+  const hours = Math.floor(ms / (1000 * 60 * 60));
+
+  if (hours > 0) {
+    return `${hours}h ${minutes}m ${seconds}s`;
+  }
+  return `${minutes}m ${seconds}s`;
 }
 
 export function createInitialPositionState(): ExtendedPositionState {
@@ -37,37 +50,57 @@ export async function processActivePosition(
     highestPriceSinceEntry = 0
   } = position;
 
+  // Clean symbol formatting (e.g., DOGE/USDT:USDT -> DOGE/USDT)
+  const cleanAsset = activeAsset.split(':')[0];
+
   const elapsedTimeMs = Date.now() - entryTime;
-  const hoursHeld = (elapsedTimeMs / (1000 * 60 * 60)).toFixed(2);
+  const timeHeldFormatted = formatDuration(elapsedTimeMs);
   const priceChangePct = ((currentPrice - entryPrice) / entryPrice) * 100;
 
-  // Track the highest price reached during the lifetime of this trade
+  // Track peak price hit during trade
   const currentHighestPrice = Math.max(highestPriceSinceEntry, currentPrice, entryPrice);
 
+  // Timeouts Configuration
+  const MAIN_TIMEOUT_MS = CONFIG.MAX_HOLD_TIME_MS; // e.g. 4 Hours
+  const MEDIUM_TIMEOUT_MS = CONFIG.MEDIUM_HOLD_TIME_MS || (MAIN_TIMEOUT_MS + (3 * 60 * 60 * 1000)); // e.g. 7 Hours
+
+  // Calculate remaining countdown time
+  let countdownLog = '';
+  if (elapsedTimeMs < MAIN_TIMEOUT_MS) {
+    const timeToMainTimeout = MAIN_TIMEOUT_MS - elapsedTimeMs;
+    countdownLog = `Main Timeout in: ${formatDuration(timeToMainTimeout)}`;
+  } else if (elapsedTimeMs < MEDIUM_TIMEOUT_MS) {
+    const timeToMediumTimeout = MEDIUM_TIMEOUT_MS - elapsedTimeMs;
+    countdownLog = `Medium Timeout in: ${formatDuration(timeToMediumTimeout)}`;
+  } else {
+    countdownLog = `Infinite Soft Exit Hold Active`;
+  }
+
+  // Updated Log matching terminal layout with Held time & Countdown
   console.log(
-    `[TRADE ACTIVE: ${activeAsset}] Price: $${currentPrice} | Peak: $${currentHighestPrice.toFixed(4)} | ` +
-    `SL/TS: $${stopLossPrice.toFixed(4)} | PnL: ${priceChangePct.toFixed(2)}% | Partial TP: ${hasTakenPartialProfit}`
+    `[TRADE ACTIVE: ${cleanAsset}] Price: $${currentPrice} | Peak: $${currentHighestPrice.toFixed(4)} | ` +
+    `SL/TS: $${stopLossPrice.toFixed(4)} | PnL: ${priceChangePct.toFixed(2)}% | Partial TP: ${hasTakenPartialProfit} | ` +
+    `Held: ${timeHeldFormatted} | (${countdownLog})`
   );
 
   // -------------------------------------------------------------
-  // 1. PARTIAL TAKE PROFIT (+2.00% Move -> Sell 50% & Activate Trailing)
+  // 1. PARTIAL TAKE PROFIT (+2.00% Move -> Sell 50% & Enable Trailing)
   // -------------------------------------------------------------
-  const partialTpPrice = entryPrice * 1.0200; // +2.00% Gain Target
+  const partialTpPrice = entryPrice * 1.0200;
 
   if (!hasTakenPartialProfit && currentPrice >= partialTpPrice) {
     const halfUnits = tradeAmountUnits / 2;
     console.log(
-      `\n🚀🚀🚀 [PARTIAL TP HIT] Selling 50% of ${activeAsset} at $${currentPrice} (+2.00% Gain)!` +
-      ` Moving Stop Loss to Breakeven ($${entryPrice.toFixed(4)}) & Enabling Trailing Stop.`
+      `\n🚀🚀🚀 [PARTIAL TP HIT] Selling 50% of ${cleanAsset} at $${currentPrice} (+2.00% Gain)!` +
+      ` Moving SL to Breakeven ($${entryPrice.toFixed(4)}) & Enabling Trailing Stop.`
     );
 
     await executeSell(exchange, activeAsset, halfUnits, "PARTIAL_TP_50_PERCENT");
 
-    // Initial trailing stop set at Breakeven (entry price)
     return {
       ...position,
       tradeAmountUnits: tradeAmountUnits - halfUnits,
-      stopLossPrice: entryPrice, 
+      stopLossPrice: entryPrice,
       hasTakenPartialProfit: true,
       highestPriceSinceEntry: currentPrice
     };
@@ -79,10 +112,9 @@ export async function processActivePosition(
   let updatedStopLoss = stopLossPrice;
 
   if (hasTakenPartialProfit) {
-    const TRAILING_DISTANCE_PCT = 0.0050; // 0.50% trailing drop allowance
+    const TRAILING_DISTANCE_PCT = 0.0050; // 0.50% Trailing Distance
     const calculatedTrailingStop = currentHighestPrice * (1 - TRAILING_DISTANCE_PCT);
 
-    // Only move Stop Loss UP, never down
     if (calculatedTrailingStop > stopLossPrice) {
       updatedStopLoss = calculatedTrailingStop;
       console.log(
@@ -97,15 +129,15 @@ export async function processActivePosition(
   // -------------------------------------------------------------
   if (currentPrice <= updatedStopLoss) {
     const slReason = hasTakenPartialProfit ? "TRAILING_STOP_HIT" : "HARD_STOP_LOSS_HIT";
-    console.log(`\n🛡️🛡️🛡️ [${slReason}] Closing remaining ${activeAsset} at $${currentPrice}.`);
+    console.log(`\n🛡️🛡️🛡️ [${slReason}] Closing remaining ${cleanAsset} at $${currentPrice}.`);
     await executeSell(exchange, activeAsset, tradeAmountUnits, slReason);
     return createInitialPositionState();
   }
 
   // -------------------------------------------------------------
-  // 4. TIME-BASED TIMEOUTS (Skipped if trade is in active profit / bullish)
+  // 4. TIME-BASED CASCADING TIMEOUTS (Skipped if Bullish / Profit >= +0.50%)
   // -------------------------------------------------------------
-  const isBullishOverride = priceChangePct >= 0.50; // Pause timeouts while up +0.50% or more
+  const isBullishOverride = priceChangePct >= 0.50;
 
   if (isBullishOverride) {
     console.log(`🔥 [BULLISH OVERRIDE] Price is up +${priceChangePct.toFixed(2)}%. Bypassing time-based exits.`);
@@ -116,27 +148,22 @@ export async function processActivePosition(
     };
   }
 
-  // Cascading Timeouts (only apply if price fails to gain momentum)
-  const MAIN_TIMEOUT_MS = CONFIG.MAX_HOLD_TIME_MS; // 4 Hours
-  const MEDIUM_TIMEOUT_MS = CONFIG.MEDIUM_HOLD_TIME_MS || (MAIN_TIMEOUT_MS + (3 * 60 * 60 * 1000)); // 7 Hours
-
   if (elapsedTimeMs >= MEDIUM_TIMEOUT_MS) {
     const softExitPrice = entryPrice * 1.0020; // +0.20%
     if (currentPrice >= softExitPrice) {
-      console.log(`\n⏳ [SOFT EXIT] Held ${hoursHeld}h (Past 7h Medium Timeout). Exiting at +0.20%.`);
+      console.log(`\n⏳ [SOFT EXIT] Held ${timeHeldFormatted} (Past 7h Medium Timeout). Exiting at +0.20%.`);
       await executeSell(exchange, activeAsset, tradeAmountUnits, "SOFT_TIMEOUT_PROFIT");
       return createInitialPositionState();
     }
   } else if (elapsedTimeMs >= MAIN_TIMEOUT_MS) {
     const mainTimeoutPrice = entryPrice * 1.0100; // +1.00%
     if (currentPrice >= mainTimeoutPrice) {
-      console.log(`\n⏳ [MAIN TIMEOUT EXIT] Held ${hoursHeld}h (Past 4h Main Timeout). Exiting at +1.00%.`);
+      console.log(`\n⏳ [MAIN TIMEOUT EXIT] Held ${timeHeldFormatted} (Past 4h Main Timeout). Exiting at +1.00%.`);
       await executeSell(exchange, activeAsset, tradeAmountUnits, "MAIN_TIMEOUT_PROFIT");
       return createInitialPositionState();
     }
   }
 
-  // Return updated state with new trailing levels
   return {
     ...position,
     stopLossPrice: updatedStopLoss,
@@ -160,4 +187,4 @@ async function executeSell(exchange: any, asset: string, units: number, reason: 
   }
 
   logAIDecision(reason, `Exited ${asset} position.`, { asset, units, mode: CONFIG.DRY_RUN ? 'DRY_RUN' : 'LIVE' });
-        }
+    }
