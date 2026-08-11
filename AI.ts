@@ -70,7 +70,7 @@ async function syncOpenExchangePosition(exchange: any): Promise<PositionState | 
           activeAsset: symbol,
           entryPrice: entryPrice,
           takeProfitPrice: entryPrice * 1.0200, // Re-establish TP (+2.00%)
-          stopLossPrice: entryPrice * 0.9900,  // Re-establish SL (-1.00%)
+          stopLossPrice: entryPrice * 0.9900,   // Re-establish SL (-1.00%)
           tradeAmountUnits: units,
           entryTime: Date.now() // Timestamp fallback
         };
@@ -149,7 +149,17 @@ async function startTradingEngine() {
 
         // --- MODE A: MONITORING ACTIVE POSITION ---
         if (position.isHoldingPosition) {
+          const wasHoldingBefore = position.isHoldingPosition;
           position = await processActivePosition(exchange, position, currentPrice);
+
+          // 🚨 HARD STOP LOSS PIVOT TRIGGER
+          if (wasHoldingBefore && !position.isHoldingPosition && position.lastExitReason === "HARD_STOP_LOSS_HIT") {
+            console.log(`\n🛑 [HARD STOP LOSS PIVOT] Asset ${activeAsset} crashed into Hard Stop Loss. Abandoning asset & pivoting immediately!`);
+            currentAssetIndex = (currentAssetIndex + 1) % CONFIG.ACTIVE_ASSETS.length;
+            closePrices = [];
+            assetStartTime = Date.now(); // Reset hunt window for the new token
+            continue;
+          }
         } 
         // --- MODE B: HUNTING FOR STRATEGY CROSSOVER ---
         else {
