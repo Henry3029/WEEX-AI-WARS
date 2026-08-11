@@ -5,6 +5,7 @@ import { logAIDecision } from './utils/logger';
 export interface ExtendedPositionState extends PositionState {
   hasTakenPartialProfit?: boolean;
   highestPriceSinceEntry?: number;
+  lastExitReason?: string | null; // Tracks why the position closed
 }
 
 // Helper to format milliseconds into readable "0h 12m 30s" or "45m 10s"
@@ -30,7 +31,8 @@ export function createInitialPositionState(): ExtendedPositionState {
     tradeAmountUnits: 0,
     entryTime: 0,
     hasTakenPartialProfit: false,
-    highestPriceSinceEntry: 0
+    highestPriceSinceEntry: 0,
+    lastExitReason: null
   };
 }
 
@@ -102,7 +104,8 @@ export async function processActivePosition(
       tradeAmountUnits: tradeAmountUnits - halfUnits,
       stopLossPrice: entryPrice,
       hasTakenPartialProfit: true,
-      highestPriceSinceEntry: currentPrice
+      highestPriceSinceEntry: currentPrice,
+      lastExitReason: "PARTIAL_TP_50_PERCENT"
     };
   }
 
@@ -131,7 +134,10 @@ export async function processActivePosition(
     const slReason = hasTakenPartialProfit ? "TRAILING_STOP_HIT" : "HARD_STOP_LOSS_HIT";
     console.log(`\n🛡️🛡️🛡️ [${slReason}] Closing remaining ${cleanAsset} at $${currentPrice}.`);
     await executeSell(exchange, activeAsset, tradeAmountUnits, slReason);
-    return createInitialPositionState();
+    
+    const resetState = createInitialPositionState();
+    resetState.lastExitReason = slReason; // Pass exit reason back to main loop!
+    return resetState;
   }
 
   // -------------------------------------------------------------
@@ -153,14 +159,18 @@ export async function processActivePosition(
     if (currentPrice >= softExitPrice) {
       console.log(`\n⏳ [SOFT EXIT] Held ${timeHeldFormatted} (Past 7h Medium Timeout). Exiting at +0.20%.`);
       await executeSell(exchange, activeAsset, tradeAmountUnits, "SOFT_TIMEOUT_PROFIT");
-      return createInitialPositionState();
+      const resetState = createInitialPositionState();
+      resetState.lastExitReason = "SOFT_TIMEOUT_PROFIT";
+      return resetState;
     }
   } else if (elapsedTimeMs >= MAIN_TIMEOUT_MS) {
     const mainTimeoutPrice = entryPrice * 1.0100; // +1.00%
     if (currentPrice >= mainTimeoutPrice) {
       console.log(`\n⏳ [MAIN TIMEOUT EXIT] Held ${timeHeldFormatted} (Past 4h Main Timeout). Exiting at +1.00%.`);
       await executeSell(exchange, activeAsset, tradeAmountUnits, "MAIN_TIMEOUT_PROFIT");
-      return createInitialPositionState();
+      const resetState = createInitialPositionState();
+      resetState.lastExitReason = "MAIN_TIMEOUT_PROFIT";
+      return resetState;
     }
   }
 
