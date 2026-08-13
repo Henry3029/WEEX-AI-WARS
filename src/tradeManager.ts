@@ -5,10 +5,11 @@ import { logAIDecision } from './utils/logger';
 export interface ExtendedPositionState extends PositionState {
   hasTakenPartialProfit?: boolean;
   highestPriceSinceEntry?: number;
-  lastExitReason?: string | null; // Tracks why the position closed
+  lastExitReason?: string | null;
+  softTargetLocked?: boolean; // Tracks +0.20% standalone lock
+  tierTargetLocked?: boolean; // Tracks +0.50% standalone lock
 }
 
-// Helper to format milliseconds into readable "0h 12m 30s" or "45m 10s"
 function formatDuration(ms: number): string {
   if (ms <= 0) return '0m 0s';
   const seconds = Math.floor((ms / 1000) % 60);
@@ -32,7 +33,9 @@ export function createInitialPositionState(): ExtendedPositionState {
     entryTime: 0,
     hasTakenPartialProfit: false,
     highestPriceSinceEntry: 0,
-    lastExitReason: null
+    lastExitReason: null,
+    softTargetLocked: false,
+    tierTargetLocked: false
   };
 }
 
@@ -49,44 +52,70 @@ export async function processActivePosition(
     entryTime, 
     entryPrice,
     hasTakenPartialProfit = false,
-    highestPriceSinceEntry = 0
+    highestPriceSinceEntry = 0,
+    softTargetLocked = false,
+    tierTargetLocked = false
   } = position;
 
-  // Clean symbol formatting (e.g., DOGE/USDT:USDT -> DOGE/USDT)
   const cleanAsset = activeAsset.split(':')[0];
-
   const elapsedTimeMs = Date.now() - entryTime;
   const timeHeldFormatted = formatDuration(elapsedTimeMs);
   const priceChangePct = ((currentPrice - entryPrice) / entryPrice) * 100;
 
-  // Track peak price hit during trade
   const currentHighestPrice = Math.max(highestPriceSinceEntry, currentPrice, entryPrice);
 
-  // Timeouts Configuration
-  const MAIN_TIMEOUT_MS = CONFIG.MAX_HOLD_TIME_MS; // e.g. 4 Hours
-  const MEDIUM_TIMEOUT_MS = CONFIG.MEDIUM_HOLD_TIME_MS || (MAIN_TIMEOUT_MS + (3 * 60 * 60 * 1000)); // e.g. 7 Hours
+  const MAIN_TIMEOUT_MS = CONFIG.MAX_HOLD_TIME_MS; 
+  const MEDIUM_TIMEOUT_MS = CONFIG.MEDIUM_HOLD_TIME_MS || (MAIN_TIMEOUT_MS + (3 * 60 * 60 * 1000)); // 7 Hours
 
-  // Calculate remaining countdown time
-  let countdownLog = '';
+  // Status Log
+  let phaseLog = '';
   if (elapsedTimeMs < MAIN_TIMEOUT_MS) {
-    const timeToMainTimeout = MAIN_TIMEOUT_MS - elapsedTimeMs;
-    countdownLog = `Main Timeout in: ${formatDuration(timeToMainTimeout)}`;
+    phaseLog = `Main Target Phase (Rem: ${formatDuration(MAIN_TIMEOUT_MS - elapsedTimeMs)})`;
   } else if (elapsedTimeMs < MEDIUM_TIMEOUT_MS) {
-    const timeToMediumTimeout = MEDIUM_TIMEOUT_MS - elapsedTimeMs;
-    countdownLog = `Medium Timeout in: ${formatDuration(timeToMediumTimeout)}`;
+    phaseLog = `Medium Target Phase (Rem: ${formatDuration(MEDIUM_TIMEOUT_MS - elapsedTimeMs)})`;
   } else {
-    countdownLog = `Infinite Soft Exit Hold Active`;
+    phaseLog = `STANDALONE SOFT PHASE ACTIVE (Post-7h)`;
   }
 
-  // Updated Log matching terminal layout with Held time & Countdown
   console.log(
     `[TRADE ACTIVE: ${cleanAsset}] Price: $${currentPrice} | Peak: $${currentHighestPrice.toFixed(4)} | ` +
     `SL/TS: $${stopLossPrice.toFixed(4)} | PnL: ${priceChangePct.toFixed(2)}% | Partial TP: ${hasTakenPartialProfit} | ` +
-    `Held: ${timeHeldFormatted} | (${countdownLog})`
+    `Held: ${timeHeldFormatted} | (${phaseLog})`
   );
 
+  let updatedStopLoss = stopLossPrice;
+  let updatedSoftTargetLocked = softTargetLocked;
+  let updatedTierTargetLocked = tierTargetLocked;
+
   // -------------------------------------------------------------
-  // 1. PARTIAL TAKE PROFIT (+2.00% Move -> Sell 50% & Enable Trailing)
+  // 1. STANDALONE SOFT TARGET LOCKS (STRICTLY AFTER 7 HOURS)
+  // -------------------------------------------------------------
+  const isPostSevenHours = elapsedTimeMs >= MEDIUM_TIMEOUT_MS;
+
+  if (isPostSevenHours && !hasTakenPartialProfit) {
+    
+    // Tier 2: Price hits +0.50% after 7 hours -> Upgrade SL Lock to +0.50%
+    if (priceChangePct >= 0.50 && !tierTargetLocked) {
+      const lock050Price = entryPrice * 1.0050;
+      if (lock050Price > updatedStopLoss) {
+        updatedStopLoss = lock050Price;
+        updatedTierTargetLocked = true;
+        console.log(`\n🔒 [POST-7H STANDALONE LOCK: +0.50%] Price hit +${priceChangePct.toFixed(2)}%! Locking SL at +0.50% ($${lock050Price.toFixed(4)}).`);
+      }
+    } 
+    // Tier 1: Price hits +0.20% after 7 hours -> Set SL Lock at +0.20%
+    else if (priceChangePct >= 0.20 && !softTargetLocked && !tierTargetLocked) {
+      const lock020Price = entryPrice * 1.0020;
+      if (lock020Price > updatedStopLoss) {
+        updatedStopLoss = lock020Price;
+        updatedSoftTargetLocked = true;
+        console.log(`\n🔒 [POST-7H STANDALONE LOCK: +0.20%] Price hit +${priceChangePct.toFixed(2)}%! Locking SL at +0.20% ($${lock020Price.toFixed(4)}).`);
+      }
+    }
+  }
+
+  // -------------------------------------------------------------
+  // 2. PARTIAL TAKE PROFIT (+2.00% Move -> Sell 50% & Enable Trailing)
   // -------------------------------------------------------------
   const partialTpPrice = entryPrice * 1.0200;
 
@@ -110,15 +139,13 @@ export async function processActivePosition(
   }
 
   // -------------------------------------------------------------
-  // 2. DYNAMIC TRAILING STOP ADJUSTMENT (Only after Partial TP)
+  // 3. DYNAMIC TRAILING STOP ADJUSTMENT (After Partial TP)
   // -------------------------------------------------------------
-  let updatedStopLoss = stopLossPrice;
-
   if (hasTakenPartialProfit) {
     const TRAILING_DISTANCE_PCT = 0.0050; // 0.50% Trailing Distance
     const calculatedTrailingStop = currentHighestPrice * (1 - TRAILING_DISTANCE_PCT);
 
-    if (calculatedTrailingStop > stopLossPrice) {
+    if (calculatedTrailingStop > updatedStopLoss) {
       updatedStopLoss = calculatedTrailingStop;
       console.log(
         `📈 [TRAILING STOP UPDATED] Peak: $${currentHighestPrice.toFixed(4)} | ` +
@@ -128,56 +155,48 @@ export async function processActivePosition(
   }
 
   // -------------------------------------------------------------
-  // 3. STOP LOSS / TRAILING STOP EXECUTION
+  // 4. STOP LOSS / TRAILING STOP / LOCKED PROFIT EXECUTION
   // -------------------------------------------------------------
   if (currentPrice <= updatedStopLoss) {
-    const slReason = hasTakenPartialProfit ? "TRAILING_STOP_HIT" : "HARD_STOP_LOSS_HIT";
-    console.log(`\n🛡️🛡️🛡️ [${slReason}] Closing remaining ${cleanAsset} at $${currentPrice}.`);
+    let slReason = "HARD_STOP_LOSS_HIT";
+    if (hasTakenPartialProfit) {
+      slReason = "TRAILING_STOP_HIT";
+    } else if (tierTargetLocked) {
+      slReason = "POST_7H_PROTECTION_050_HIT";
+    } else if (softTargetLocked) {
+      slReason = "POST_7H_PROTECTION_020_HIT";
+    }
+
+    console.log(`\n🛡️🛡️🛡️ [${slReason}] Closing position on ${cleanAsset} at $${currentPrice}.`);
     await executeSell(exchange, activeAsset, tradeAmountUnits, slReason);
     
     const resetState = createInitialPositionState();
-    resetState.lastExitReason = slReason; // Pass exit reason back to main loop!
+    resetState.lastExitReason = slReason;
     return resetState;
   }
 
   // -------------------------------------------------------------
-  // 4. TIME-BASED CASCADING TIMEOUTS (Skipped if Bullish / Profit >= +0.50%)
+  // 5. MAIN TIMEOUT EXITS (Runs STRICTLY within the first 7 Hours)
   // -------------------------------------------------------------
-  const isBullishOverride = priceChangePct >= 0.50;
-
-  if (isBullishOverride) {
-    console.log(`🔥 [BULLISH OVERRIDE] Price is up +${priceChangePct.toFixed(2)}%. Bypassing time-based exits.`);
-    return {
-      ...position,
-      stopLossPrice: updatedStopLoss,
-      highestPriceSinceEntry: currentHighestPrice
-    };
-  }
-
-  if (elapsedTimeMs >= MEDIUM_TIMEOUT_MS) {
-    const softExitPrice = entryPrice * 1.0020; // +0.20%
-    if (currentPrice >= softExitPrice) {
-      console.log(`\n⏳ [SOFT EXIT] Held ${timeHeldFormatted} (Past 7h Medium Timeout). Exiting at +0.20%.`);
-      await executeSell(exchange, activeAsset, tradeAmountUnits, "SOFT_TIMEOUT_PROFIT");
-      const resetState = createInitialPositionState();
-      resetState.lastExitReason = "SOFT_TIMEOUT_PROFIT";
-      return resetState;
-    }
-  } else if (elapsedTimeMs >= MAIN_TIMEOUT_MS) {
-    const mainTimeoutPrice = entryPrice * 1.0100; // +1.00%
-    if (currentPrice >= mainTimeoutPrice) {
-      console.log(`\n⏳ [MAIN TIMEOUT EXIT] Held ${timeHeldFormatted} (Past 4h Main Timeout). Exiting at +1.00%.`);
-      await executeSell(exchange, activeAsset, tradeAmountUnits, "MAIN_TIMEOUT_PROFIT");
-      const resetState = createInitialPositionState();
-      resetState.lastExitReason = "MAIN_TIMEOUT_PROFIT";
-      return resetState;
+  if (!isPostSevenHours) {
+    if (elapsedTimeMs >= MAIN_TIMEOUT_MS && elapsedTimeMs < MEDIUM_TIMEOUT_MS) {
+      const mainTimeoutPrice = entryPrice * 1.0100; // +1.00%
+      if (currentPrice >= mainTimeoutPrice) {
+        console.log(`\n⏳ [MAIN TIMEOUT EXIT] Held ${timeHeldFormatted} (Past 4h Main Timeout). Exiting at +1.00%.`);
+        await executeSell(exchange, activeAsset, tradeAmountUnits, "MAIN_TIMEOUT_PROFIT");
+        const resetState = createInitialPositionState();
+        resetState.lastExitReason = "MAIN_TIMEOUT_PROFIT";
+        return resetState;
+      }
     }
   }
 
   return {
     ...position,
     stopLossPrice: updatedStopLoss,
-    highestPriceSinceEntry: currentHighestPrice
+    highestPriceSinceEntry: currentHighestPrice,
+    softTargetLocked: updatedSoftTargetLocked,
+    tierTargetLocked: updatedTierTargetLocked
   };
 }
 
@@ -197,4 +216,4 @@ async function executeSell(exchange: any, asset: string, units: number, reason: 
   }
 
   logAIDecision(reason, `Exited ${asset} position.`, { asset, units, mode: CONFIG.DRY_RUN ? 'DRY_RUN' : 'LIVE' });
-    }
+      }
