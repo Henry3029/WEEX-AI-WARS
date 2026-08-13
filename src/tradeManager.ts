@@ -65,7 +65,7 @@ export async function processActivePosition(
   const currentHighestPrice = Math.max(highestPriceSinceEntry, currentPrice, entryPrice);
 
   const MAIN_TIMEOUT_MS = CONFIG.MAX_HOLD_TIME_MS; 
-  const MEDIUM_TIMEOUT_MS = CONFIG.MEDIUM_HOLD_TIME_MS || (MAIN_TIMEOUT_MS + (3 * 60 * 60 * 1000)); // 7 Hours
+  const MEDIUM_TIMEOUT_MS = CONFIG.MEDIUM_HOLD_TIME_MS || (MAIN_TIMEOUT_MS + (1 * 60 * 60 * 1000)); // 3 Hours
 
   // Status Log
   let phaseLog = '';
@@ -74,7 +74,7 @@ export async function processActivePosition(
   } else if (elapsedTimeMs < MEDIUM_TIMEOUT_MS) {
     phaseLog = `Medium Target Phase (Rem: ${formatDuration(MEDIUM_TIMEOUT_MS - elapsedTimeMs)})`;
   } else {
-    phaseLog = `STANDALONE SOFT PHASE ACTIVE (Post-7h)`;
+    phaseLog = `STANDALONE SOFT PHASE ACTIVE (Post-3h)`;
   }
 
   console.log(
@@ -100,7 +100,7 @@ export async function processActivePosition(
       if (lock050Price > updatedStopLoss) {
         updatedStopLoss = lock050Price;
         updatedTierTargetLocked = true;
-        console.log(`\n🔒 [POST-7H STANDALONE LOCK: +0.50%] Price hit +${priceChangePct.toFixed(2)}%! Locking SL at +0.50% ($${lock050Price.toFixed(4)}).`);
+        console.log(`\n🔒 [POST-3H STANDALONE LOCK: +0.50%] Price hit +${priceChangePct.toFixed(2)}%! Locking SL at +0.50% ($${lock050Price.toFixed(4)}).`);
       }
     } 
     // Tier 1: Price hits +0.20% after 7 hours -> Set SL Lock at +0.20%
@@ -109,7 +109,7 @@ export async function processActivePosition(
       if (lock020Price > updatedStopLoss) {
         updatedStopLoss = lock020Price;
         updatedSoftTargetLocked = true;
-        console.log(`\n🔒 [POST-7H STANDALONE LOCK: +0.20%] Price hit +${priceChangePct.toFixed(2)}%! Locking SL at +0.20% ($${lock020Price.toFixed(4)}).`);
+        console.log(`\n🔒 [POST-3H STANDALONE LOCK: +0.20%] Price hit +${priceChangePct.toFixed(2)}%! Locking SL at +0.20% ($${lock020Price.toFixed(4)}).`);
       }
     }
   }
@@ -162,9 +162,9 @@ export async function processActivePosition(
     if (hasTakenPartialProfit) {
       slReason = "TRAILING_STOP_HIT";
     } else if (tierTargetLocked) {
-      slReason = "POST_7H_PROTECTION_050_HIT";
+      slReason = "POST_3H_PROTECTION_050_HIT";
     } else if (softTargetLocked) {
-      slReason = "POST_7H_PROTECTION_020_HIT";
+      slReason = "POST_3H_PROTECTION_020_HIT";
     }
 
     console.log(`\n🛡️🛡️🛡️ [${slReason}] Closing position on ${cleanAsset} at $${currentPrice}.`);
@@ -182,7 +182,7 @@ export async function processActivePosition(
     if (elapsedTimeMs >= MAIN_TIMEOUT_MS && elapsedTimeMs < MEDIUM_TIMEOUT_MS) {
       const mainTimeoutPrice = entryPrice * 1.0100; // +1.00%
       if (currentPrice >= mainTimeoutPrice) {
-        console.log(`\n⏳ [MAIN TIMEOUT EXIT] Held ${timeHeldFormatted} (Past 4h Main Timeout). Exiting at +1.00%.`);
+        console.log(`\n⏳ [MAIN TIMEOUT EXIT] Held ${timeHeldFormatted} (Past 2h Main Timeout). Exiting at +1.00%.`);
         await executeSell(exchange, activeAsset, tradeAmountUnits, "MAIN_TIMEOUT_PROFIT");
         const resetState = createInitialPositionState();
         resetState.lastExitReason = "MAIN_TIMEOUT_PROFIT";
