@@ -70,6 +70,7 @@ export async function processActivePosition(
 
   const MAIN_TIMEOUT_MS = CONFIG.MAX_HOLD_TIME_MS; 
   const MEDIUM_TIMEOUT_MS = CONFIG.MEDIUM_HOLD_TIME_MS || (MAIN_TIMEOUT_MS + (1 * 60 * 60 * 1000)); 
+  const STAGNANT_TIMEOUT_MS = CONFIG.STAGNANT_TIMEOUT_MS; // 24 Hours
 
   // Status Logging
   let phaseLog = '';
@@ -77,8 +78,10 @@ export async function processActivePosition(
     phaseLog = `Pre-Timeout Phase (Rem: ${formatDuration(MAIN_TIMEOUT_MS - elapsedTimeMs)})`;
   } else if (elapsedTimeMs < MEDIUM_TIMEOUT_MS) {
     phaseLog = `Main Timeout Step-Up Active (Rem: ${formatDuration(MEDIUM_TIMEOUT_MS - elapsedTimeMs)})`;
+  } else if (elapsedTimeMs < STAGNANT_TIMEOUT_MS) {
+    phaseLog = `Standalone Soft Step-Up Active (Rem to 24h Cutoff: ${formatDuration(STAGNANT_TIMEOUT_MS - elapsedTimeMs)})`;
   } else {
-    phaseLog = `Standalone Soft Step-Up Active (Post-Timeout)`;
+    phaseLog = `STAGNANT CUTOFF EVALUATION`;
   }
 
   console.log(
@@ -93,7 +96,22 @@ export async function processActivePosition(
   let updatedLockedProfitPct = lockedProfitPct;
 
   // -------------------------------------------------------------
-  // 1. STEP-UP PROFIT LOCKING (Main & Medium Timeout Windows)
+  // 1. 24-HOUR STAGNANT ASSET CUTOFF (EVICT UNPRODUCTIVE TRADES)
+  // -------------------------------------------------------------
+  if (elapsedTimeMs >= STAGNANT_TIMEOUT_MS && peakPriceChangePct < 0.20) {
+    console.log(
+      `\n⏱️ [24H STAGNANT CUTOFF] Trade held for ${timeHeldFormatted} without touching +0.20% peak. ` +
+      `Exiting at $${currentPrice} (${priceChangePct.toFixed(2)}%) to liberate capital for better opportunities.`
+    );
+    
+    await executeSell(exchange, activeAsset, tradeAmountUnits, "24H_STAGNANT_TIMEOUT");
+    const resetState = createInitialPositionState();
+    resetState.lastExitReason = "24H_STAGNANT_TIMEOUT";
+    return resetState;
+  }
+
+  // -------------------------------------------------------------
+  // 2. STEP-UP PROFIT LOCKING (Main & Medium Timeout Windows)
   // -------------------------------------------------------------
   const isPastMainTimeout = elapsedTimeMs >= MAIN_TIMEOUT_MS;
   const isPostMediumTimeout = elapsedTimeMs >= MEDIUM_TIMEOUT_MS;
@@ -102,10 +120,7 @@ export async function processActivePosition(
     
     // A. Main Timeout Window Step-Up Locks (Between Main Timeout and Medium Timeout)
     if (isPastMainTimeout && !isPostMediumTimeout) {
-      // Calculate dynamic step-up threshold based on highest peak price achieved
-      // Base trigger starts at +1.00%, locking SL at +0.80% (80% profit lock / 0.20% buffer)
       if (peakPriceChangePct >= 1.00) {
-        // Steps: +1.00% -> lock +0.80%, +1.50% -> lock +1.30%, +2.00% -> lock +1.80%, etc.
         const stepMultiplier = Math.floor((peakPriceChangePct - 1.00) / 0.50);
         const targetLockPct = 0.80 + (stepMultiplier * 0.50);
 
@@ -136,7 +151,7 @@ export async function processActivePosition(
           console.log(`\n🔒 [POST-TIMEOUT SOFT LOCK] Price hit +${peakPriceChangePct.toFixed(2)}%! Locking SL at +0.20% ($${lock020Price.toFixed(4)}).`);
         }
       } 
-      // Step 2: Step-Up locks starting from +0.50% peak (Locking +0.30% first, then stepping up every +0.50%)
+      // Step 2: Step-Up locks starting from +0.50% peak
       else if (peakPriceChangePct >= 0.50) {
         const stepMultiplier = Math.floor((peakPriceChangePct - 0.50) / 0.50);
         const targetLockPct = 0.30 + (stepMultiplier * 0.50);
@@ -158,7 +173,7 @@ export async function processActivePosition(
   }
 
   // -------------------------------------------------------------
-  // 2. PARTIAL TAKE PROFIT (+2.00% Move -> Sell 50% & Enable Trailing)
+  // 3. PARTIAL TAKE PROFIT (+2.00% Move -> Sell 50% & Enable Trailing)
   // -------------------------------------------------------------
   const partialTpPrice = entryPrice * 1.0200;
 
@@ -182,7 +197,7 @@ export async function processActivePosition(
   }
 
   // -------------------------------------------------------------
-  // 3. DYNAMIC TRAILING STOP ADJUSTMENT (After Partial TP)
+  // 4. DYNAMIC TRAILING STOP ADJUSTMENT (After Partial TP)
   // -------------------------------------------------------------
   if (hasTakenPartialProfit) {
     const TRAILING_DISTANCE_PCT = 0.0050; // 0.50% Trailing Distance
@@ -198,7 +213,7 @@ export async function processActivePosition(
   }
 
   // -------------------------------------------------------------
-  // 4. STOP LOSS / TRAILING STOP / LOCKED PROFIT EXECUTION
+  // 5. STOP LOSS / TRAILING STOP / LOCKED PROFIT EXECUTION
   // -------------------------------------------------------------
   if (currentPrice <= updatedStopLoss) {
     let slReason = "HARD_STOP_LOSS_HIT";
