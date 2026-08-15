@@ -1,10 +1,10 @@
 import { TradeConfig } from './types';
 
 export const CONFIG: TradeConfig = {
-  ACTIVE_ASSETS: [ 
-  'BTC/USDT:USDT',   // Bitcoin (Primary/First Priority)
+  ACTIVE_ASSETS: [
   'DOGE/USDT:USDT', 
   'XRP/USDT:USDT',
+  'BTC/USDT:USDT',
   'ETH/USDT:USDT',   // Added Volatile Asset 4
   'AVAX/USDT:USDT',  // Added Volatile Asset 5
   'BNB/USDT:USDT',
@@ -16,5 +16,6 @@ export const CONFIG: TradeConfig = {
   RENDER_URL: 'https://weex-ai-wars.onrender.com',
   DRY_RUN: true,
   MEDIUM_HOLD_TIME_MS: 3 * 60 * 60 * 1000,
+  STAGNANT_TIMEOUT_MS: 24 * 60 * 60 * 1000,
   MAX_HOLD_TIME_MS: 2 * 60 * 60 * 1000 // Reduced from 6h to 2-hour trade timeout limit
 };
