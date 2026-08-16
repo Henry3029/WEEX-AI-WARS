@@ -177,7 +177,7 @@ async function startTradingEngine() {
             const fetchedBalance = (balanceStructure.free as any)['USDT'] || 0;
             const availableUSDT = fetchedBalance > 0 ? fetchedBalance : (CONFIG.DRY_RUN ? 20000 : 0);
 
-            const dynamicMargin = availableUSDT * 0.10;
+            const dynamicMargin = availableUSDT * 0.50;
             if (dynamicMargin < 1) {
               console.log(`⚠️ Balance check: Dynamic margin ($${dynamicMargin.toFixed(2)}) is below safety limit ($1.00). Skipping trade.`);
               await new Promise(resolve => setTimeout(resolve, CONFIG.POLL_INTERVAL_MS));
