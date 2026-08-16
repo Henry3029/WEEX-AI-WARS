@@ -143,7 +143,7 @@ export async function processActivePosition(
     else if (isPostMediumTimeout) {
       // Step 1: Base soft protection locks at +0.20%
       if (peakPriceChangePct >= 0.20 && peakPriceChangePct < 0.50 && !softTargetLocked) {
-        const lock020Price = entryPrice * 1.0020;
+        const lock020Price = entryPrice * 1.0000;
         if (lock020Price > updatedStopLoss) {
           updatedStopLoss = lock020Price;
           updatedSoftTargetLocked = true;
