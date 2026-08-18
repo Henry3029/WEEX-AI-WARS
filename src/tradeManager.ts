@@ -6,7 +6,6 @@ export interface ExtendedPositionState extends PositionState {
   hasTakenPartialProfit?: boolean;
   highestPriceSinceEntry?: number;
   lastExitReason?: string | null;
-  softTargetLocked?: boolean; 
   tierTargetLocked?: boolean; 
   lockedProfitPct?: number; // Tracks current step-up locked profit %
 }
@@ -35,7 +34,6 @@ export function createInitialPositionState(): ExtendedPositionState {
     hasTakenPartialProfit: false,
     highestPriceSinceEntry: 0,
     lastExitReason: null,
-    softTargetLocked: false,
     tierTargetLocked: false,
     lockedProfitPct: 0
   };
@@ -55,7 +53,6 @@ export async function processActivePosition(
     entryPrice,
     hasTakenPartialProfit = false,
     highestPriceSinceEntry = 0,
-    softTargetLocked = false,
     tierTargetLocked = false,
     lockedProfitPct = 0
   } = position;
@@ -78,7 +75,6 @@ export async function processActivePosition(
   );
 
   let updatedStopLoss = stopLossPrice;
-  let updatedSoftTargetLocked = softTargetLocked;
   let updatedTierTargetLocked = tierTargetLocked;
   let updatedLockedProfitPct = lockedProfitPct;
 
@@ -98,44 +94,28 @@ export async function processActivePosition(
   }
 
   // -------------------------------------------------------------
-  // 2. DYNAMIC STEP-UP PROFIT LOCKS (ACTIVE ANYTIME / 24-7)
+  // 2. DYNAMIC STEP-UP PROFIT LOCKS (STARTS AT +0.50% PEAK / ACTIVE ANYTIME)
   // -------------------------------------------------------------
-  if (!hasTakenPartialProfit) {
-    
-    // Tier 1: Soft Lock (+0.20% Peak -> Lock Breakeven +0.00%)
-    if (peakPriceChangePct >= 0.20 && peakPriceChangePct < 0.50 && !updatedSoftTargetLocked) {
-      const breakevenPrice = entryPrice * 1.0000; // Breakeven (+0.00%)
+  if (!hasTakenPartialProfit && peakPriceChangePct >= 0.50) {
+    // Continuous Step-Up Locks:
+    // Peak hit +0.50% -> Lock SL at +0.30%
+    // Peak hit +1.00% -> Lock SL at +0.80%
+    // Peak hit +1.50% -> Lock SL at +1.30%
+    const stepMultiplier = Math.floor((peakPriceChangePct - 0.50) / 0.50);
+    const targetLockPct = 0.30 + (stepMultiplier * 0.50);
+
+    if (targetLockPct > updatedLockedProfitPct) {
+      const calculatedSL = entryPrice * (1 + targetLockPct / 100);
       
-      // Safety Check: Only apply if breakeven SL > current SL AND current live price > breakeven SL
-      if (breakevenPrice > updatedStopLoss && currentPrice > breakevenPrice) {
-        updatedStopLoss = breakevenPrice;
-        updatedSoftTargetLocked = true;
-        updatedLockedProfitPct = 0.00;
+      // Safety Check: Only apply if calculated SL > current SL AND current live price > calculated SL
+      if (calculatedSL > updatedStopLoss && currentPrice > calculatedSL) {
+        updatedStopLoss = calculatedSL;
+        updatedLockedProfitPct = targetLockPct;
+        updatedTierTargetLocked = true;
         console.log(
-          `\n🔒 [ANYTIME SOFT LOCK] Peak hit +${peakPriceChangePct.toFixed(2)}%! ` +
-          `Locking SL at Breakeven +0.00% ($${breakevenPrice.toFixed(4)}) with 0.20% buffer.`
+          `\n🔒 [ANYTIME STEP-UP LOCK] Peak hit +${peakPriceChangePct.toFixed(2)}%! ` +
+          `Locking SL at +${targetLockPct.toFixed(2)}% ($${calculatedSL.toFixed(4)}) with 0.20% buffer.`
         );
-      }
-    } 
-
-    // Tier 2+: Continuous Step-Up Locks (Starting at +0.50% Peak)
-    else if (peakPriceChangePct >= 0.50) {
-      const stepMultiplier = Math.floor((peakPriceChangePct - 0.50) / 0.50);
-      const targetLockPct = 0.30 + (stepMultiplier * 0.50);
-
-      if (targetLockPct > updatedLockedProfitPct) {
-        const calculatedSL = entryPrice * (1 + targetLockPct / 100);
-        
-        // Safety Check: Only apply if calculated SL > current SL AND current live price > calculated SL
-        if (calculatedSL > updatedStopLoss && currentPrice > calculatedSL) {
-          updatedStopLoss = calculatedSL;
-          updatedLockedProfitPct = targetLockPct;
-          updatedTierTargetLocked = true;
-          console.log(
-            `\n🔒 [ANYTIME STEP-UP LOCK] Peak hit +${peakPriceChangePct.toFixed(2)}%! ` +
-            `Locking SL at +${targetLockPct.toFixed(2)}% ($${calculatedSL.toFixed(4)}) with 0.20% buffer.`
-          );
-        }
       }
     }
   }
@@ -189,8 +169,6 @@ export async function processActivePosition(
       slReason = "TRAILING_STOP_HIT";
     } else if (updatedTierTargetLocked) {
       slReason = `STEP_UP_LOCKED_PROFIT_HIT_${updatedLockedProfitPct.toFixed(2).replace('.', '_')}_PCT`;
-    } else if (updatedSoftTargetLocked) {
-      slReason = "SOFT_PROTECTION_020_HIT";
     }
 
     console.log(`\n🛡️🛡️🛡️ [${slReason}] Closing position on ${cleanAsset} at $${currentPrice}.`);
@@ -205,7 +183,6 @@ export async function processActivePosition(
     ...position,
     stopLossPrice: updatedStopLoss,
     highestPriceSinceEntry: currentHighestPrice,
-    softTargetLocked: updatedSoftTargetLocked,
     tierTargetLocked: updatedTierTargetLocked,
     lockedProfitPct: updatedLockedProfitPct
   };
