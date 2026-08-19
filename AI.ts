@@ -52,7 +52,7 @@ async function syncOpenExchangePosition(exchange: any): Promise<PositionState | 
     const positions = await exchange.fetchPositions();
     if (!positions || !Array.isArray(positions)) return null;
 
-    // Find any position where contract/size size is strictly > 0
+    // Find any position where contract/size is strictly > 0
     const active = positions.find((p: any) => {
       const size = parseFloat(p.contracts || p.size || p.amount || 0);
       return size > 0;
@@ -132,7 +132,7 @@ async function startTradingEngine() {
 
         // --- STEP 2: PIVOT CONTROL ---
         if (elapsed >= THREE_HOURS_MS && !position.isHoldingPosition) {
-          console.log(`\n🔄 [Pivot Alarm] 3 hours elapsed! Switching focus...`);
+          console.log(`\n🔄 [Pivot Alarm] Window elapsed! Switching focus...`);
           currentAssetIndex = (currentAssetIndex + 1) % CONFIG.ACTIVE_ASSETS.length;
           closePrices = [];
           assetStartTime = Date.now();
@@ -152,12 +152,17 @@ async function startTradingEngine() {
           const wasHoldingBefore = position.isHoldingPosition;
           position = await processActivePosition(exchange, position, currentPrice);
 
-          // 🚨 HARD STOP LOSS PIVOT TRIGGER
-          if (wasHoldingBefore && !position.isHoldingPosition && position.lastExitReason === "HARD_STOP_LOSS_HIT") {
-            console.log(`\n🛑 [HARD STOP LOSS PIVOT] Asset ${activeAsset} crashed into Hard Stop Loss. Abandoning asset & pivoting immediately!`);
+          // 🚨 HARD STOP LOSS / STAGNANT TIMEOUT PIVOT TRIGGER
+          const isHardStop = position.lastExitReason === "HARD_STOP_LOSS_HIT";
+          const isStagnant = position.lastExitReason === "24H_STAGNANT_TIMEOUT";
+
+          if (wasHoldingBefore && !position.isHoldingPosition && (isHardStop || isStagnant)) {
+            const reasonText = isHardStop ? "crashed into Hard Stop Loss (-1.00%)" : "stagnated for 24 hours";
+            console.log(`\n🛑 [IMMEDIATE PIVOT] Asset ${activeAsset} ${reasonText}. Abandoning asset & pivoting immediately!`);
+            
             currentAssetIndex = (currentAssetIndex + 1) % CONFIG.ACTIVE_ASSETS.length;
             closePrices = [];
-            assetStartTime = Date.now(); // Reset hunt window for the new token
+            assetStartTime = Date.now(); // Reset hunt timer for the new asset
             continue;
           }
         } 
@@ -170,8 +175,8 @@ async function startTradingEngine() {
 
           if (signal.isSignal) {
             const entryPrice = currentPrice;
-            const takeProfitPrice = entryPrice * 1.002; // +0.20%
-            const stopLossPrice = entryPrice * 0.9900;   // -1%
+            const takeProfitPrice = entryPrice * 1.0200; // +2.00%
+            const stopLossPrice = entryPrice * 0.9900;   // -1.00%
 
             const balanceStructure = await exchange.fetchBalance({ 'type': 'swap' });
             const fetchedBalance = (balanceStructure.free as any)['USDT'] || 0;
