@@ -93,21 +93,18 @@ export async function processActivePosition(
     return resetState;
   }
 
-  // -------------------------------------------------------------
-  // 2. DYNAMIC STEP-UP PROFIT LOCKS (STARTS AT +0.50% PEAK / ACTIVE ANYTIME)
+// -------------------------------------------------------------
+  // 2. DYNAMIC STEP-UP PROFIT LOCKS (INFINITE SCALING FROM +0.50%)
   // -------------------------------------------------------------
   if (!hasTakenPartialProfit && peakPriceChangePct >= 0.50) {
-    // Continuous Step-Up Locks:
-    // Peak hit +0.50% -> Lock SL at +0.30%
-    // Peak hit +1.00% -> Lock SL at +0.80%
-    // Peak hit +1.50% -> Lock SL at +1.30%
-    const stepMultiplier = Math.floor((peakPriceChangePct - 0.50) / 0.50);
-    const targetLockPct = 0.30 + (stepMultiplier * 0.50);
+    // Calculates 0.20% step increments above +0.50% with a continuous 0.20% buffer
+    const stepCount = Math.floor((peakPriceChangePct - 0.50) / 0.20);
+    const targetLockPct = 0.30 + (stepCount * 0.20);
 
     if (targetLockPct > updatedLockedProfitPct) {
       const calculatedSL = entryPrice * (1 + targetLockPct / 100);
       
-      // Safety Check: Only apply if calculated SL > current SL AND current live price > calculated SL
+      // Safety Check: Only apply if new SL > current SL AND current live price > new SL
       if (calculatedSL > updatedStopLoss && currentPrice > calculatedSL) {
         updatedStopLoss = calculatedSL;
         updatedLockedProfitPct = targetLockPct;
