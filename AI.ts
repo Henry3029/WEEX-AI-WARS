@@ -23,7 +23,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.get('/', (req, res) => {
-  res.send({ status: "online", engine: "WEEX AI Wars Bot Active" });
+  res.send({ status: "online", engine: "WEEX Dual AI Engine Active" });
 });
 
 app.listen(PORT, () => {
@@ -44,18 +44,16 @@ function startSelfPinger() {
 }
 
 /**
- * HELPER: Direct Exchange Query to Re-Hydrate Open Positions
- * Protects against memory wipes on Render restarts/re-deploys.
+ * HELPER: Exchange Position Syncing filtered specifically to an Engine's Asset Pool
  */
-async function syncOpenExchangePosition(exchange: any): Promise<PositionState | null> {
+async function syncOpenExchangePosition(exchange: any, assetPool: string[]): Promise<PositionState | null> {
   try {
     const positions = await exchange.fetchPositions();
     if (!positions || !Array.isArray(positions)) return null;
 
-    // Find any position where contract/size is strictly > 0
     const active = positions.find((p: any) => {
       const size = parseFloat(p.contracts || p.size || p.amount || 0);
-      return size > 0;
+      return size > 0 && assetPool.includes(p.symbol);
     });
 
     if (active) {
@@ -64,7 +62,7 @@ async function syncOpenExchangePosition(exchange: any): Promise<PositionState | 
       const units = parseFloat(active.contracts || active.size || active.amount || 0);
 
       if (entryPrice > 0 && units > 0) {
-        console.log(`\n🔍 [EXCHANGE SYNC DETECTED] Found active live trade on WEEX: ${units} units of ${symbol} @ $${entryPrice}`);
+        console.log(`\n🔍 [EXCHANGE SYNC] Found active live trade: ${units} units of ${symbol} @ $${entryPrice}`);
         return {
           isHoldingPosition: true,
           activeAsset: symbol,
@@ -72,164 +70,182 @@ async function syncOpenExchangePosition(exchange: any): Promise<PositionState | 
           takeProfitPrice: entryPrice * 1.0200, // Re-establish TP (+2.00%)
           stopLossPrice: entryPrice * 0.9900,   // Re-establish SL (-1.00%)
           tradeAmountUnits: units,
-          entryTime: Date.now() // Timestamp fallback
+          entryTime: Date.now()
         };
       }
     }
   } catch (err: any) {
-    console.warn(`[Sync Check Warning] Could not sync positions from WEEX: ${err.message}`);
+    console.warn(`[Sync Check Warning] Could not sync positions: ${err.message}`);
   }
   return null;
 }
 
-// Main Trading Loop
+/**
+ * CORE REUSABLE TRADING ENGINE
+ */
+async function runTradingEngine(
+  engineName: string,
+  exchange: any,
+  assetPool: string[],
+  marginAllocationRatio: number
+) {
+  let currentAssetIndex = 0;
+  let closePrices: number[] = [];
+  let assetStartTime = Date.now();
+  const THREE_HOURS_MS = 2 * 60 * 60 * 1000;
+
+  let position = createInitialPositionState();
+
+  console.log(`🚀 [${engineName}] Engine Initialized. Assets: ${assetPool.join(', ')}`);
+
+  while (true) {
+    try {
+      // --- STEP 1: RE-SYNC EXCHANGE POSITIONS IF LOCAL STATE IS EMPTY ---
+      if (!position.isHoldingPosition && !CONFIG.DRY_RUN) {
+        const syncedPosition = await syncOpenExchangePosition(exchange, assetPool);
+        if (syncedPosition) {
+          position = syncedPosition;
+          
+          const matchingIndex = assetPool.findIndex(a => a === position.activeAsset);
+          if (matchingIndex !== -1) {
+            currentAssetIndex = matchingIndex;
+          }
+        }
+      }
+
+      const activeAsset = position.isHoldingPosition ? position.activeAsset : assetPool[currentAssetIndex];
+      const elapsed = Date.now() - assetStartTime;
+
+      // --- STEP 2: PIVOT CONTROL ---
+      if (elapsed >= THREE_HOURS_MS && !position.isHoldingPosition) {
+        console.log(`\n🔄 [${engineName} Pivot] 3-Hour Window elapsed! Switching asset focus...`);
+        currentAssetIndex = (currentAssetIndex + 1) % assetPool.length;
+        closePrices = [];
+        assetStartTime = Date.now();
+        continue;
+      } else if (elapsed >= THREE_HOURS_MS && position.isHoldingPosition) {
+        console.log(`⚠️ [${engineName} Pivot Postponed] Holding active trade on ${activeAsset}.`);
+      }
+
+      // --- STEP 3: TICKER FETCH ---
+      const ticker = await exchange.fetchTicker(activeAsset);
+      const currentPrice = ticker.last as number;
+      closePrices.push(currentPrice);
+      if (closePrices.length > 50) closePrices.shift();
+
+      // --- MODE A: MONITORING ACTIVE POSITION ---
+      if (position.isHoldingPosition) {
+        const wasHoldingBefore = position.isHoldingPosition;
+        position = await processActivePosition(exchange, position, currentPrice);
+
+        const isHardStop = position.lastExitReason === "HARD_STOP_LOSS_HIT";
+        const isStagnant = position.lastExitReason === "24H_STAGNANT_TIMEOUT";
+
+        if (wasHoldingBefore && !position.isHoldingPosition && (isHardStop || isStagnant)) {
+          const reasonText = isHardStop ? "crashed into Hard Stop Loss (-1.00%)" : "stagnated for 24 hours";
+          console.log(`\n🛑 [${engineName} IMMEDIATE PIVOT] Asset ${activeAsset} ${reasonText}. Abandoning & pivoting!`);
+          
+          currentAssetIndex = (currentAssetIndex + 1) % assetPool.length;
+          closePrices = [];
+          assetStartTime = Date.now();
+          continue;
+        }
+      } 
+      // --- MODE B: HUNTING FOR STRATEGY CROSSOVER ---
+      else {
+        const minsRemaining = Math.max(0, ((THREE_HOURS_MS - elapsed) / 60000)).toFixed(1);
+        console.log(`[${engineName} Hunting: ${activeAsset}] Price: ${currentPrice} | Window: ${closePrices.length}/50 | Next shift: ${minsRemaining} mins`);
+
+        const signal = evaluateStrategy(closePrices, activeAsset);
+
+        if (signal.isSignal) {
+          const entryPrice = currentPrice;
+
+          const balanceStructure = await exchange.fetchBalance({ 'type': 'swap' });
+          const fetchedBalance = (balanceStructure.free as any)['USDT'] || 0;
+          const availableUSDT = fetchedBalance > 0 ? fetchedBalance : (CONFIG.DRY_RUN ? 20000 : 0);
+
+          const dynamicMargin = availableUSDT * marginAllocationRatio;
+          if (dynamicMargin < 1) {
+            console.log(`⚠️ [${engineName}] Balance check: Dynamic margin ($${dynamicMargin.toFixed(2)}) below safety limit ($1.00). Skipping.`);
+            await new Promise(resolve => setTimeout(resolve, CONFIG.POLL_INTERVAL_MS));
+            continue;
+          }
+
+          const tradeAmount = calculateDynamicAmount(exchange, activeAsset, currentPrice, dynamicMargin, CONFIG.LEVERAGE_LIMIT);
+          if (tradeAmount === 0) continue;
+
+          let liveOrderId: string | undefined = "SIMULATED_ID";
+
+          if (!CONFIG.DRY_RUN) {
+            try {
+              const order = await exchange.createMarketBuyOrder(activeAsset, tradeAmount);
+              liveOrderId = order.id;
+            } catch (tradeError: any) {
+              console.error(`❌ [${engineName} REJECTION] Order failed:`, tradeError.message);
+              continue;
+            }
+          }
+
+          position = {
+            isHoldingPosition: true,
+            activeAsset,
+            entryPrice,
+            takeProfitPrice: entryPrice * 1.0200,
+            stopLossPrice: entryPrice * 0.9900,
+            tradeAmountUnits: tradeAmount,
+            entryTime: Date.now()
+          };
+
+          logAIDecision('EMA_CROSSOVER_BUY', signal.reason, {
+            mode: CONFIG.DRY_RUN ? "DRY_RUN" : "LIVE",
+            engine: engineName,
+            orderId: liveOrderId,
+            asset: activeAsset,
+            executionPrice: entryPrice,
+            amountUnits: tradeAmount
+          });
+        }
+      }
+    } catch (networkError: any) {
+      console.warn(`[${engineName} Network Warning] ${networkError.message}`);
+    }
+
+    await new Promise(resolve => setTimeout(resolve, CONFIG.POLL_INTERVAL_MS));
+  }
+}
+
+// Master Launcher
 async function startTradingEngine() {
   const exchange = new ccxt.weex({
     'apiKey': process.env.WEEX_API_KEY,
     'secret': process.env.WEEX_SECRET_KEY,
     'password': process.env.WEEX_PASSPHRASE,
     'timeout': 10000,
+    'enableRateLimit': true, // Auto-throttles API requests to protect against bans
     'options': { 'defaultType': 'swap' }
   });
 
   try {
     console.log("╔══════════════════════════════════════════════════════╗");
-    console.log("║           WEEX AI WARS ENGINE ACTIVATED              ║");
+    console.log("║           WEEX DUAL AI ENGINE ACTIVATED              ║");
     console.log("╚══════════════════════════════════════════════════════╝");
 
     await exchange.loadMarkets();
-    for (const asset of CONFIG.ACTIVE_ASSETS) {
+
+    const allAssets = [...CONFIG.MAJOR_ASSETS, ...CONFIG.ALT_ASSETS];
+    for (const asset of allAssets) {
       await exchange.setLeverage(CONFIG.LEVERAGE_LIMIT, asset);
     }
 
     startSelfPinger();
 
-    let currentAssetIndex = 0;
-    let closePrices: number[] = [];
-    let assetStartTime = Date.now();
-    const THREE_HOURS_MS = 2 * 60 * 60 * 1000;
+    // Launch both engines concurrently
+    await Promise.all([
+      runTradingEngine("MAJOR_ENGINE", exchange, CONFIG.MAJOR_ASSETS, 0.40), // 40% margin allocation
+      runTradingEngine("ALT_ENGINE", exchange, CONFIG.ALT_ASSETS, 0.40)     // 40% margin allocation
+    ]);
 
-    let position = createInitialPositionState();
-
-    while (true) {
-      try {
-        // --- STEP 1: RE-SYNC EXCHANGE POSITIONS IF LOCAL STATE IS EMPTY ---
-        if (!position.isHoldingPosition && !CONFIG.DRY_RUN) {
-          const syncedPosition = await syncOpenExchangePosition(exchange);
-          if (syncedPosition) {
-            position = syncedPosition;
-            
-            // Adjust current asset index to match the active position's symbol
-            const matchingIndex = CONFIG.ACTIVE_ASSETS.findIndex(a => a === position.activeAsset);
-            if (matchingIndex !== -1) {
-              currentAssetIndex = matchingIndex;
-            }
-          }
-        }
-
-        const activeAsset = position.isHoldingPosition ? position.activeAsset : CONFIG.ACTIVE_ASSETS[currentAssetIndex];
-        const elapsed = Date.now() - assetStartTime;
-
-        // --- STEP 2: PIVOT CONTROL ---
-        if (elapsed >= THREE_HOURS_MS && !position.isHoldingPosition) {
-          console.log(`\n🔄 [Pivot Alarm] Window elapsed! Switching focus...`);
-          currentAssetIndex = (currentAssetIndex + 1) % CONFIG.ACTIVE_ASSETS.length;
-          closePrices = [];
-          assetStartTime = Date.now();
-          continue;
-        } else if (elapsed >= THREE_HOURS_MS && position.isHoldingPosition) {
-          console.log(`⚠️ [Pivoting Postponed] Holding active trade on ${activeAsset}.`);
-        }
-
-        // --- STEP 3: TICKER FETCH ---
-        const ticker = await exchange.fetchTicker(activeAsset);
-        const currentPrice = ticker.last as number;
-        closePrices.push(currentPrice);
-        if (closePrices.length > 50) closePrices.shift();
-
-        // --- MODE A: MONITORING ACTIVE POSITION ---
-        if (position.isHoldingPosition) {
-          const wasHoldingBefore = position.isHoldingPosition;
-          position = await processActivePosition(exchange, position, currentPrice);
-
-          // 🚨 HARD STOP LOSS / STAGNANT TIMEOUT PIVOT TRIGGER
-          const isHardStop = position.lastExitReason === "HARD_STOP_LOSS_HIT";
-          const isStagnant = position.lastExitReason === "24H_STAGNANT_TIMEOUT";
-
-          if (wasHoldingBefore && !position.isHoldingPosition && (isHardStop || isStagnant)) {
-            const reasonText = isHardStop ? "crashed into Hard Stop Loss (-1.00%)" : "stagnated for 24 hours";
-            console.log(`\n🛑 [IMMEDIATE PIVOT] Asset ${activeAsset} ${reasonText}. Abandoning asset & pivoting immediately!`);
-            
-            currentAssetIndex = (currentAssetIndex + 1) % CONFIG.ACTIVE_ASSETS.length;
-            closePrices = [];
-            assetStartTime = Date.now(); // Reset hunt timer for the new asset
-            continue;
-          }
-        } 
-        // --- MODE B: HUNTING FOR STRATEGY CROSSOVER ---
-        else {
-          const minsRemaining = Math.max(0, ((THREE_HOURS_MS - elapsed) / 60000)).toFixed(1);
-          console.log(`[Hunting: ${activeAsset}] Price: ${currentPrice} | Window: ${closePrices.length}/50 | Next shift: ${minsRemaining} mins`);
-
-          const signal = evaluateStrategy(closePrices, activeAsset);
-
-          if (signal.isSignal) {
-            const entryPrice = currentPrice;
-            const takeProfitPrice = entryPrice * 1.0200; // +2.00%
-            const stopLossPrice = entryPrice * 0.9900;   // -1.00%
-
-            const balanceStructure = await exchange.fetchBalance({ 'type': 'swap' });
-            const fetchedBalance = (balanceStructure.free as any)['USDT'] || 0;
-            const availableUSDT = fetchedBalance > 0 ? fetchedBalance : (CONFIG.DRY_RUN ? 20000 : 0);
-
-            const dynamicMargin = availableUSDT * 0.50;
-            if (dynamicMargin < 1) {
-              console.log(`⚠️ Balance check: Dynamic margin ($${dynamicMargin.toFixed(2)}) is below safety limit ($1.00). Skipping trade.`);
-              await new Promise(resolve => setTimeout(resolve, CONFIG.POLL_INTERVAL_MS));
-              continue;
-            }
-
-            const tradeAmount = calculateDynamicAmount(exchange, activeAsset, currentPrice, dynamicMargin, CONFIG.LEVERAGE_LIMIT);
-            if (tradeAmount === 0) continue;
-
-            let liveOrderId: string | undefined = "SIMULATED_ID";
-
-            if (!CONFIG.DRY_RUN) {
-              try {
-                const order = await exchange.createMarketBuyOrder(activeAsset, tradeAmount);
-                liveOrderId = order.id;
-              } catch (tradeError: any) {
-                console.error(`❌ [WEEX REJECTION] Order failed:`, tradeError.message);
-                continue;
-              }
-            }
-
-            // Assign matching properties for tradeManager.ts
-            position = {
-              isHoldingPosition: true,
-              activeAsset,
-              entryPrice,
-              takeProfitPrice,
-              stopLossPrice,
-              tradeAmountUnits: tradeAmount,
-              entryTime: Date.now()
-            };
-
-            logAIDecision('EMA_CROSSOVER_BUY', signal.reason, {
-              mode: CONFIG.DRY_RUN ? "DRY_RUN" : "LIVE",
-              orderId: liveOrderId,
-              asset: activeAsset,
-              executionPrice: entryPrice,
-              amountUnits: tradeAmount
-            });
-          }
-        }
-      } catch (networkError: any) {
-        console.warn(`[Network Warning] ${networkError.message}`);
-      }
-
-      await new Promise(resolve => setTimeout(resolve, CONFIG.POLL_INTERVAL_MS));
-    }
   } catch (criticalError: any) {
     console.error("❌ CRITICAL: Engine initialization failed:", criticalError.message);
     process.exit(1);
