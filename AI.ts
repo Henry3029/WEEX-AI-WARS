@@ -233,7 +233,7 @@ async function startTradingEngine() {
 
     await exchange.loadMarkets();
 
-    const allAssets = [...CONFIG.MAJOR_ASSETS, ...CONFIG.ALT_ASSETS];
+    const allAssets = [...CONFIG.MAJOR_ASSETS, ...CONFIG.ALT_ASSETS, ...CONFIG.MEME_ASSETS];
     for (const asset of allAssets) {
       await exchange.setLeverage(CONFIG.LEVERAGE_LIMIT, asset);
     }
@@ -242,8 +242,9 @@ async function startTradingEngine() {
 
     // Launch both engines concurrently
     await Promise.all([
-      runTradingEngine("MAJOR_ENGINE", exchange, CONFIG.MAJOR_ASSETS, 0.40), // 40% margin allocation
-      runTradingEngine("ALT_ENGINE", exchange, CONFIG.ALT_ASSETS, 0.40)     // 40% margin allocation
+      runTradingEngine("MAJOR_ENGINE", exchange, CONFIG.MAJOR_ASSETS, 0.30), // 30% margin allocation
+      runTradingEngine("ALT_ENGINE", exchange, CONFIG.ALT_ASSETS, 0.30),     // 30% margin allocation
+      runTradingEngine("MEME_ENGINE", exchange, CONFIG.MEME_ASSETS, 0.30) // 30%
     ]);
 
   } catch (criticalError: any) {
