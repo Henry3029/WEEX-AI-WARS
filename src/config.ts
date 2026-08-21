@@ -7,7 +7,7 @@ export const CONFIG: TradeConfig = {
   ],
   ALT_ASSETS: [
     'BNB/USDT:USDT',
-    'DOGE/USDT:USDT'
+    'DOGE/USDT:USDT',
      'XRP/USDT:USDT'
   ],
   MEME_ASSETS: [
