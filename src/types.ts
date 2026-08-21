@@ -12,6 +12,7 @@ export interface PositionState {
 export interface TradeConfig {
   MAJOR_ASSETS: string[];
   ALT_ASSETS: string[];
+  MEME_ASSETS: string[];
   LEVERAGE_LIMIT: number;
   POLL_INTERVAL_MS: number;
   RENDER_URL: string;
