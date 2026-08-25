@@ -92,7 +92,7 @@ async function runTradingEngine(
   let currentAssetIndex = 0;
   let closePrices: number[] = [];
   let assetStartTime = Date.now();
-  const THREE_HOURS_MS = 2 * 60 * 60 * 1000;
+  const THREE_HOURS_MS = 12 * 60 * 60 * 1000;
 
   let position = createInitialPositionState();
 
