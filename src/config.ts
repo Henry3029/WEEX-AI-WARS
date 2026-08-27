@@ -18,7 +18,7 @@ export const CONFIG: TradeConfig = {
   LEVERAGE_LIMIT: 20,
   POLL_INTERVAL_MS: 3000,
   RENDER_URL: 'https://weex-ai-wars.onrender.com',
-  DRY_RUN: true,
+  DRY_RUN: false,
   MEDIUM_HOLD_TIME_MS: 3 * 60 * 60 * 1000,
   STAGNANT_TIMEOUT_MS: 24 * 60 * 60 * 1000,
   MAX_HOLD_TIME_MS: 2 * 60 * 60 * 1000
