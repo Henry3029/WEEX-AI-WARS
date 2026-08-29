@@ -172,20 +172,31 @@ async function runTradingEngine(
             continue;
           }
 
-          const tradeAmount = calculateDynamicAmount(exchange, activeAsset, currentPrice, dynamicMargin, CONFIG.LEVERAGE_LIMIT);
-          if (tradeAmount === 0) continue;
+          // --- UPDATED CODE WITH MINIMUM QUANTITY CHECK ---
+const tradeAmount = calculateDynamicAmount(exchange, activeAsset, currentPrice, dynamicMargin, CONFIG.LEVERAGE_LIMIT);
+if (tradeAmount === 0) continue;
 
-          let liveOrderId: string | undefined = "SIMULATED_ID";
+// Fetch market metadata to check WEEX minimum limit rules
+const market = exchange.market(activeAsset);
+const minAmount = market?.limits?.amount?.min || 0;
 
-          if (!CONFIG.DRY_RUN) {
-            try {
-              const order = await exchange.createMarketBuyOrder(activeAsset, tradeAmount);
-              liveOrderId = order.id;
-            } catch (tradeError: any) {
-              console.error(`❌ [${engineName} REJECTION] Order failed:`, tradeError.message);
-              continue;
-            }
-          }
+if (minAmount > 0 && tradeAmount < minAmount) {
+  console.log(`⚠️ [${engineName}] Skipping ${activeAsset}: Calculated size (${tradeAmount}) is below WEEX minimum requirement (${minAmount}).`);
+  await new Promise(resolve => setTimeout(resolve, CONFIG.POLL_INTERVAL_MS));
+  continue; // Skip order safely without triggering exchange rejection error loops
+}
+
+let liveOrderId: string | undefined = "SIMULATED_ID";
+
+if (!CONFIG.DRY_RUN) {
+  try {
+    const order = await exchange.createMarketBuyOrder(activeAsset, tradeAmount);
+    liveOrderId = order.id;
+  } catch (tradeError: any) {
+    console.error(`❌ [${engineName} REJECTION] Order failed:`, tradeError.message);
+    continue;
+  }
+}
 
           position = {
             isHoldingPosition: true,
