@@ -253,9 +253,9 @@ async function startTradingEngine() {
 
     // Launch both engines concurrently
     await Promise.all([
-      runTradingEngine("MAJOR_ENGINE", exchange, CONFIG.MAJOR_ASSETS, 0.30), // 30% margin allocation
-      runTradingEngine("ALT_ENGINE", exchange, CONFIG.ALT_ASSETS, 0.30),     // 30% margin allocation
-      runTradingEngine("MEME_ENGINE", exchange, CONFIG.MEME_ASSETS, 0.30) // 30%
+      runTradingEngine("MAJOR_ENGINE", exchange, CONFIG.MAJOR_ASSETS, 0.20), // 30% margin allocation
+      runTradingEngine("ALT_ENGINE", exchange, CONFIG.ALT_ASSETS, 0.25),     // 30% margin allocation
+      runTradingEngine("MEME_ENGINE", exchange, CONFIG.MEME_ASSETS, 0.25) // 30%
     ]);
 
   } catch (criticalError: any) {
