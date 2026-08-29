@@ -13,7 +13,7 @@ export const CONFIG: TradeConfig = {
   MEME_ASSETS: [
     'AVAX/USDT:USDT',
     'ZEC/USDT:USDT',
-    'BTW/USDT:USDT' // Isolated high-volatility / speculative pair
+    '1000PEPE/USDT:USDT' // Isolated high-volatility / speculative pair
   ],
   LEVERAGE_LIMIT: 20,
   POLL_INTERVAL_MS: 3000,
