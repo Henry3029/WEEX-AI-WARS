@@ -14,14 +14,14 @@ export const CONFIG: TradeConfig = {
     'AVAX/USDT:USDT',
     'ZEC/USDT:USDT',
     'BTW/USDT:USDT',
-    'PONS/USDT:USDT'
+    '1000PEPE/USDT:USDT'
   ],
   
   // Market Floor & Minimum Precision Registry
   ASSET_RULES: {
     'ZEC': { minLot: 0.1, integerOnly: false },
     'BTW': { minLot: 100.0, integerOnly: true },
-    'PONS': { minLot: 100.0, integerOnly: true },
+   '1000PEPE': { minLot: 1.0, integerOnly: true },
     'DEFAULT': { minLot: 0.001, integerOnly: false }
   },
   

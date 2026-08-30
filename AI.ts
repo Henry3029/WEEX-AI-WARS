@@ -258,7 +258,12 @@ async function startTradingEngine() {
 
     const allAssets = [...CONFIG.MAJOR_ASSETS, ...CONFIG.ALT_ASSETS, ...CONFIG.MEME_ASSETS];
     for (const asset of allAssets) {
-      await exchange.setLeverage(CONFIG.LEVERAGE_LIMIT, asset);
+      try {
+    await exchange.setLeverage(CONFIG.LEVERAGE_LIMIT, asset);
+    console.log(`✅ Leverage set to ${CONFIG.LEVERAGE_LIMIT}x for ${asset}`);
+  } catch (err: any) {
+    console.warn(`⚠️ [API Skip] Could not set leverage for ${asset}: ${err.message}`);
+  }
     }
 
     startSelfPinger();
