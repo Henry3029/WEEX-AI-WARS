@@ -92,7 +92,7 @@ async function runTradingEngine(
   let currentAssetIndex = 0;
   let closePrices: number[] = [];
   let assetStartTime = Date.now();
-  const THREE_HOURS_MS = 12 * 60 * 60 * 1000;
+  const THREE_HOURS_MS = 24 * 60 * 60 * 1000;
 
   let position = createInitialPositionState();
 
@@ -172,18 +172,30 @@ async function runTradingEngine(
             continue;
           }
 
-          // --- UPDATED CODE WITH MINIMUM QUANTITY CHECK ---
-const tradeAmount = calculateDynamicAmount(exchange, activeAsset, currentPrice, dynamicMargin, CONFIG.LEVERAGE_LIMIT);
+       // Calculate raw trade amount based on dynamic margin
+let tradeAmount = calculateDynamicAmount(exchange, activeAsset, currentPrice, dynamicMargin, CONFIG.LEVERAGE_LIMIT);
 if (tradeAmount === 0) continue;
 
-// Fetch market metadata to check WEEX minimum limit rules
-const market = exchange.market(activeAsset);
-const minAmount = market?.limits?.amount?.min || 0;
+// 1. Resolve asset-specific registry rules from CONFIG (fallback to DEFAULT if not defined)
+const rules = CONFIG.ASSET_RULES || {};
+const ruleKey = Object.keys(rules).find(key => activeAsset.includes(key)) || 'DEFAULT';
+const assetRule = rules[ruleKey] || { minLot: 0.001, integerOnly: false };
 
-if (minAmount > 0 && tradeAmount < minAmount) {
-  console.log(`⚠️ [${engineName}] Skipping ${activeAsset}: Calculated size (${tradeAmount}) is below WEEX minimum requirement (${minAmount}).`);
+// 2. Safely query CCXT market limits with fallback to your config registry floor
+const market = exchange.market(activeAsset);
+const ccxtMin = market?.limits?.amount?.min || 0;
+const effectiveMinAmount = ccxtMin > 0 ? ccxtMin : assetRule.minLot;
+
+// 3. Format integer-only assets (e.g. 1000PEPE, PONS)
+if (assetRule.integerOnly) {
+  tradeAmount = Math.floor(tradeAmount);
+}
+
+// 4. Validate final order quantity against effective minimum threshold
+if (tradeAmount < effectiveMinAmount) {
+  console.log(` [${engineName}] Skipping ${activeAsset}: Size (${tradeAmount}) is below required minimum threshold (${effectiveMinAmount}).`);
   await new Promise(resolve => setTimeout(resolve, CONFIG.POLL_INTERVAL_MS));
-  continue; // Skip order safely without triggering exchange rejection error loops
+  continue;
 }
 
 let liveOrderId: string | undefined = "SIMULATED_ID";

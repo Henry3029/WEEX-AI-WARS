@@ -1,3 +1,8 @@
+export interface AssetRule {
+  minLot: number;
+  integerOnly: boolean;
+}
+
 export interface PositionState {
   isHoldingPosition: boolean;
   activeAsset: string;
@@ -13,6 +18,7 @@ export interface TradeConfig {
   MAJOR_ASSETS: string[];
   ALT_ASSETS: string[];
   MEME_ASSETS: string[];
+  ASSET_RULES?: Record<string, AssetRule>;
   LEVERAGE_LIMIT: number;
   POLL_INTERVAL_MS: number;
   RENDER_URL: string;
@@ -21,3 +27,4 @@ export interface TradeConfig {
   STAGNANT_TIMEOUT_MS: number;
   MAX_HOLD_TIME_MS: number; // e.g. 2 hours
 }
+
