@@ -12,8 +12,7 @@ export const CONFIG: TradeConfig = {
   ],
   MEME_ASSETS: [
     'AVAX/USDT:USDT',
-    'ZEC/USDT:USDT',
-    'BTW/USDT:USDT',
+    'SOL/USDT:USDT',
     '1000PEPE/USDT:USDT'
   ],
   
