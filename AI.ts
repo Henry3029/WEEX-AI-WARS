@@ -94,6 +94,9 @@ async function runTradingEngine(
   let assetStartTime = Date.now();
   const THREE_HOURS_MS = 24 * 60 * 60 * 1000;
 
+  // High-Water Mark tracker to prevent position shrinkage during drawdowns
+  let peakAvailableUSDT = 0;
+
   let position = createInitialPositionState();
 
   console.log(`🚀 [${engineName}] Engine Initialized. Assets: ${assetPool.join(', ')}`);
@@ -163,52 +166,60 @@ async function runTradingEngine(
 
           const balanceStructure = await exchange.fetchBalance({ 'type': 'swap' });
           const fetchedBalance = (balanceStructure.free as any)['USDT'] || 0;
-          const availableUSDT = fetchedBalance > 0 ? fetchedBalance : (CONFIG.DRY_RUN ? 20000 : 0);
+          const currentAvailableUSDT = fetchedBalance > 0 ? fetchedBalance : (CONFIG.DRY_RUN ? 20000 : 0);
 
-          const dynamicMargin = availableUSDT * marginAllocationRatio;
+          // --- HIGH-WATER MARK CAPITAL SIZING (PREVENTS DRAWDOWN SIZING BUG) ---
+          if (currentAvailableUSDT > peakAvailableUSDT) {
+            peakAvailableUSDT = currentAvailableUSDT; // Update peak baseline on new equity highs
+          }
+
+          // Use peak balance to maintain trade size during drawdowns
+          const effectiveCapitalBase = peakAvailableUSDT > 0 ? peakAvailableUSDT : currentAvailableUSDT;
+          const dynamicMargin = effectiveCapitalBase * marginAllocationRatio;
+
           if (dynamicMargin < 1) {
             console.log(`⚠️ [${engineName}] Balance check: Dynamic margin ($${dynamicMargin.toFixed(2)}) below safety limit ($1.00). Skipping.`);
             await new Promise(resolve => setTimeout(resolve, CONFIG.POLL_INTERVAL_MS));
             continue;
           }
 
-       // Calculate raw trade amount based on dynamic margin
-let tradeAmount = calculateDynamicAmount(exchange, activeAsset, currentPrice, dynamicMargin, CONFIG.LEVERAGE_LIMIT);
-if (tradeAmount === 0) continue;
+          // Calculate raw trade amount based on peak dynamic margin
+          let tradeAmount = calculateDynamicAmount(exchange, activeAsset, currentPrice, dynamicMargin, CONFIG.LEVERAGE_LIMIT);
+          if (tradeAmount === 0) continue;
 
-// 1. Resolve asset-specific registry rules from CONFIG (fallback to DEFAULT if not defined)
-const rules = CONFIG.ASSET_RULES || {};
-const ruleKey = Object.keys(rules).find(key => activeAsset.includes(key)) || 'DEFAULT';
-const assetRule = rules[ruleKey] || { minLot: 0.001, integerOnly: false };
+          // 1. Resolve asset-specific registry rules from CONFIG (fallback to DEFAULT if not defined)
+          const rules = CONFIG.ASSET_RULES || {};
+          const ruleKey = Object.keys(rules).find(key => activeAsset.includes(key)) || 'DEFAULT';
+          const assetRule = rules[ruleKey] || { minLot: 0.001, integerOnly: false };
 
-// 2. Safely query CCXT market limits with fallback to your config registry floor
-const market = exchange.market(activeAsset);
-const ccxtMin = market?.limits?.amount?.min || 0;
-const effectiveMinAmount = ccxtMin > 0 ? ccxtMin : assetRule.minLot;
+          // 2. Safely query CCXT market limits with fallback to your config registry floor
+          const market = exchange.market(activeAsset);
+          const ccxtMin = market?.limits?.amount?.min || 0;
+          const effectiveMinAmount = ccxtMin > 0 ? ccxtMin : assetRule.minLot;
 
-// 3. Format integer-only assets (e.g. 1000PEPE, PONS)
-if (assetRule.integerOnly) {
-  tradeAmount = Math.floor(tradeAmount);
-}
+          // 3. Format integer-only assets (e.g. 1000PEPE, PONS)
+          if (assetRule.integerOnly) {
+            tradeAmount = Math.floor(tradeAmount);
+          }
 
-// 4. Validate final order quantity against effective minimum threshold
-if (tradeAmount < effectiveMinAmount) {
-  console.log(` [${engineName}] Skipping ${activeAsset}: Size (${tradeAmount}) is below required minimum threshold (${effectiveMinAmount}).`);
-  await new Promise(resolve => setTimeout(resolve, CONFIG.POLL_INTERVAL_MS));
-  continue;
-}
+          // 4. Validate final order quantity against effective minimum threshold
+          if (tradeAmount < effectiveMinAmount) {
+            console.log(`⚠️ [${engineName}] Skipping ${activeAsset}: Size (${tradeAmount}) is below required minimum threshold (${effectiveMinAmount}).`);
+            await new Promise(resolve => setTimeout(resolve, CONFIG.POLL_INTERVAL_MS));
+            continue;
+          }
 
-let liveOrderId: string | undefined = "SIMULATED_ID";
+          let liveOrderId: string | undefined = "SIMULATED_ID";
 
-if (!CONFIG.DRY_RUN) {
-  try {
-    const order = await exchange.createMarketBuyOrder(activeAsset, tradeAmount);
-    liveOrderId = order.id;
-  } catch (tradeError: any) {
-    console.error(`❌ [${engineName} REJECTION] Order failed:`, tradeError.message);
-    continue;
-  }
-}
+          if (!CONFIG.DRY_RUN) {
+            try {
+              const order = await exchange.createMarketBuyOrder(activeAsset, tradeAmount);
+              liveOrderId = order.id;
+            } catch (tradeError: any) {
+              console.error(`❌ [${engineName} REJECTION] Order failed:`, tradeError.message);
+              continue;
+            }
+          }
 
           position = {
             isHoldingPosition: true,
@@ -251,7 +262,7 @@ async function startTradingEngine() {
 
   try {
     console.log("╔══════════════════════════════════════════════════════╗");
-    console.log("║           WEEX DUAL AI ENGINE ACTIVATED              ║");
+    console.log("║              WEEX DUAL AI ENGINE ACTIVATED           ║");
     console.log("╚══════════════════════════════════════════════════════╝");
 
     await exchange.loadMarkets();
@@ -259,20 +270,20 @@ async function startTradingEngine() {
     const allAssets = [...CONFIG.MAJOR_ASSETS, ...CONFIG.ALT_ASSETS, ...CONFIG.MEME_ASSETS];
     for (const asset of allAssets) {
       try {
-    await exchange.setLeverage(CONFIG.LEVERAGE_LIMIT, asset);
-    console.log(`✅ Leverage set to ${CONFIG.LEVERAGE_LIMIT}x for ${asset}`);
-  } catch (err: any) {
-    console.warn(`⚠️ [API Skip] Could not set leverage for ${asset}: ${err.message}`);
-  }
+        await exchange.setLeverage(CONFIG.LEVERAGE_LIMIT, asset);
+        console.log(`✅ Leverage set to ${CONFIG.LEVERAGE_LIMIT}x for ${asset}`);
+      } catch (err: any) {
+        console.warn(`⚠️ [API Skip] Could not set leverage for ${asset}: ${err.message}`);
+      }
     }
 
     startSelfPinger();
 
-    // Launch both engines concurrently
+    // Launch engines concurrently
     await Promise.all([
       runTradingEngine("MAJOR_ENGINE", exchange, CONFIG.MAJOR_ASSETS, 0.30), // 30% margin allocation
-      runTradingEngine("ALT_ENGINE", exchange, CONFIG.ALT_ASSETS, 0.20),     // 20% margin allocation
-      runTradingEngine("MEME_ENGINE", exchange, CONFIG.MEME_ASSETS, 0.20) // 20%
+      runTradingEngine("ALT_ENGINE", exchange, CONFIG.ALT_ASSETS, 0.20),      // 20% margin allocation
+      runTradingEngine("MEME_ENGINE", exchange, CONFIG.MEME_ASSETS, 0.20)     // 20% margin allocation
     ]);
 
   } catch (criticalError: any) {
