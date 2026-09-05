@@ -1,6 +1,6 @@
 import { PositionState } from './types';
 import { CONFIG } from './config';
-import { logAIDecision } from './utils/logger';
+import { logAIDecision, ExecutionRecord } from './utils/logger';
 
 export interface ExtendedPositionState extends PositionState {
   hasTakenPartialProfit?: boolean;
@@ -87,7 +87,7 @@ export async function processActivePosition(
       `Exiting at $${currentPrice} (${priceChangePct.toFixed(2)}%) to liberate capital for better opportunities.`
     );
     
-    const soldSuccessfully = await executeSell(exchange, activeAsset, tradeAmountUnits, "24H_STAGNANT_TIMEOUT");
+    const soldSuccessfully = await executeSell(exchange, activeAsset, tradeAmountUnits, currentPrice, "24H_STAGNANT_TIMEOUT");
     if (!soldSuccessfully) return position;
 
     const resetState = createInitialPositionState();
@@ -129,7 +129,7 @@ export async function processActivePosition(
       ` Moving SL to Breakeven ($${entryPrice.toFixed(4)}) & Enabling Trailing Stop.`
     );
 
-    const soldSuccessfully = await executeSell(exchange, activeAsset, halfUnits, "PARTIAL_TP_50_PERCENT");
+    const soldSuccessfully = await executeSell(exchange, activeAsset, halfUnits, currentPrice, "PARTIAL_TP_50_PERCENT");
     
     if (soldSuccessfully) {
       return {
@@ -171,7 +171,7 @@ export async function processActivePosition(
     }
 
     console.log(`\n🛡️🛡️🛡️ [${slReason}] Closing position on ${cleanAsset} at $${currentPrice}.`);
-    const soldSuccessfully = await executeSell(exchange, activeAsset, tradeAmountUnits, slReason);
+    const soldSuccessfully = await executeSell(exchange, activeAsset, tradeAmountUnits, currentPrice, slReason);
     
     if (!soldSuccessfully) return position;
 
@@ -190,17 +190,48 @@ export async function processActivePosition(
 }
 
 /**
+ * Creates a complete ExecutionRecord conforming strictly to logger.ts interface.
+ */
+function createExecutionRecord(
+  mode: string,
+  asset: string,
+  action: string,
+  executionPrice: number,
+  status: string
+): ExecutionRecord {
+  return {
+    mode,
+    asset,
+    action,
+    executionPrice,
+    indicators: {
+      fastEma: 'N/A',
+      slowEma: 'N/A',
+      rsi: 'N/A'
+    },
+    status
+  };
+}
+
+/**
  * Normalizes unit quantity according to exchange market precision and executes market sell order.
  */
 async function executeSell(
   exchange: any, 
   asset: string, 
   rawUnits: number, 
+  executionPrice: number,
   reason: string
 ): Promise<boolean> {
+  const mode = CONFIG.DRY_RUN ? 'DRY_RUN' : 'LIVE';
+
   if (CONFIG.DRY_RUN) {
     console.log(`🧪 [DRY_RUN] Simulated sell of ${rawUnits} units of ${asset}. Reason: ${reason}`);
-    logAIDecision(reason, `Exited ${asset} position (${rawUnits} units).`);
+    logAIDecision(
+      reason, 
+      `Simulated exit for ${asset} (${rawUnits} units)`,
+      createExecutionRecord(mode, asset, 'SELL', executionPrice, 'SIMULATED_SUCCESS')
+    );
     return true;
   }
 
@@ -226,12 +257,20 @@ async function executeSell(
     });
 
     console.log(`✅ [LIVE SELL SUCCESS] Executed ${validUnits} units on ${asset}. Exit Reason: ${reason}`);
-    logAIDecision(reason, `Exited ${asset} position (${validUnits} units).`);
+    logAIDecision(
+      reason, 
+      `Executed sell for ${asset} (${validUnits} units)`,
+      createExecutionRecord(mode, asset, 'SELL', executionPrice, 'FILLED')
+    );
     return true;
 
   } catch (exitError: any) {
     console.error(`❌ Critical: Failed to execute sell order on ${asset}: ${exitError.message}`);
-    logAIDecision("SELL_ORDER_FAILED", `Failed sell attempt on ${asset}: ${exitError.message}`);
+    logAIDecision(
+      'SELL_ORDER_FAILED', 
+      `Failed sell attempt on ${asset}: ${exitError.message}`,
+      createExecutionRecord(mode, asset, 'SELL', executionPrice, 'FAILED')
+    );
     return false;
   }
 }
