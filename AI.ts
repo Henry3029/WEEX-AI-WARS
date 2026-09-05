@@ -121,7 +121,7 @@ async function runTradingEngine(
 
       // --- STEP 2: PIVOT CONTROL ---
       if (elapsed >= THREE_HOURS_MS && !position.isHoldingPosition) {
-        console.log(`\n🔄 [${engineName} Pivot] 3-Hour Window elapsed! Switching asset focus...`);
+        console.log(`\n🔄 [${engineName} Pivot] Window elapsed! Switching asset focus...`);
         currentAssetIndex = (currentAssetIndex + 1) % assetPool.length;
         closePrices = [];
         assetStartTime = Date.now();
@@ -164,47 +164,59 @@ async function runTradingEngine(
         if (signal.isSignal) {
           const entryPrice = currentPrice;
 
-          const balanceStructure = await exchange.fetchBalance({ 'type': 'swap' });
-          const fetchedBalance = (balanceStructure.free as any)['USDT'] || 0;
-          const currentAvailableUSDT = fetchedBalance > 0 ? fetchedBalance : (CONFIG.DRY_RUN ? 20000 : 0);
-
-          // --- HIGH-WATER MARK CAPITAL SIZING (PREVENTS DRAWDOWN SIZING BUG) ---
-          if (currentAvailableUSDT > peakAvailableUSDT) {
-            peakAvailableUSDT = currentAvailableUSDT; // Update peak baseline on new equity highs
+          let fetchedBalance = 0;
+          try {
+            const balanceStructure = await exchange.fetchBalance({ 'type': 'swap' });
+            fetchedBalance = (balanceStructure.free as any)?.['USDT'] || (balanceStructure.total as any)?.['USDT'] || 0;
+          } catch (balErr: any) {
+            console.warn(`⚠️ [${engineName}] Could not fetch balance: ${balErr.message}`);
           }
 
-          // Use peak balance to maintain trade size during drawdowns
+          const currentAvailableUSDT = fetchedBalance > 0 ? fetchedBalance : (CONFIG.DRY_RUN ? 20000 : 0);
+
+          // --- HIGH-WATER MARK CAPITAL SIZING ---
+          if (currentAvailableUSDT > peakAvailableUSDT) {
+            peakAvailableUSDT = currentAvailableUSDT;
+          }
+
           const effectiveCapitalBase = peakAvailableUSDT > 0 ? peakAvailableUSDT : currentAvailableUSDT;
           const dynamicMargin = effectiveCapitalBase * marginAllocationRatio;
 
           if (dynamicMargin < 1) {
-            console.log(`⚠️ [${engineName}] Balance check: Dynamic margin ($${dynamicMargin.toFixed(2)}) below safety limit ($1.00). Skipping.`);
+            console.log(`⚠️ [${engineName}] Dynamic margin ($${dynamicMargin.toFixed(2)}) below safety limit ($1.00). Skipping.`);
             await new Promise(resolve => setTimeout(resolve, CONFIG.POLL_INTERVAL_MS));
             continue;
           }
 
-          // Calculate raw trade amount based on peak dynamic margin
-          let tradeAmount = calculateDynamicAmount(exchange, activeAsset, currentPrice, dynamicMargin, CONFIG.LEVERAGE_LIMIT);
-          if (tradeAmount === 0) continue;
+          // Calculate raw trade amount based on dynamic margin
+          let rawTradeAmount = calculateDynamicAmount(exchange, activeAsset, currentPrice, dynamicMargin, CONFIG.LEVERAGE_LIMIT);
+          if (rawTradeAmount === 0) continue;
 
-          // 1. Resolve asset-specific registry rules from CONFIG (fallback to DEFAULT if not defined)
+          // 1. Ensure markets are loaded
+          if (!exchange.markets || Object.keys(exchange.markets).length === 0) {
+            await exchange.loadMarkets();
+          }
+
+          const market = exchange.market(activeAsset);
+
+          // 2. Asset rules fallback check
           const rules = CONFIG.ASSET_RULES || {};
           const ruleKey = Object.keys(rules).find(key => activeAsset.includes(key)) || 'DEFAULT';
           const assetRule = rules[ruleKey] || { minLot: 0.001, integerOnly: false };
 
-          // 2. Safely query CCXT market limits with fallback to your config registry floor
-          const market = exchange.market(activeAsset);
-          const ccxtMin = market?.limits?.amount?.min || 0;
-          const effectiveMinAmount = ccxtMin > 0 ? ccxtMin : assetRule.minLot;
+          // 3. Format amount using CCXT amountToPrecision
+          let tradeAmount = parseFloat(exchange.amountToPrecision(activeAsset, rawTradeAmount));
 
-          // 3. Format integer-only assets (e.g. 1000PEPE, PONS)
           if (assetRule.integerOnly) {
             tradeAmount = Math.floor(tradeAmount);
           }
 
-          // 4. Validate final order quantity against effective minimum threshold
+          // 4. Validate against minimum thresholds
+          const ccxtMin = market?.limits?.amount?.min || 0;
+          const effectiveMinAmount = ccxtMin > 0 ? ccxtMin : assetRule.minLot;
+
           if (tradeAmount < effectiveMinAmount) {
-            console.log(`⚠️ [${engineName}] Skipping ${activeAsset}: Size (${tradeAmount}) is below required minimum threshold (${effectiveMinAmount}).`);
+            console.log(`⚠️ [${engineName}] Skipping ${activeAsset}: Formatted size (${tradeAmount}) below required minimum (${effectiveMinAmount}).`);
             await new Promise(resolve => setTimeout(resolve, CONFIG.POLL_INTERVAL_MS));
             continue;
           }
@@ -213,7 +225,10 @@ async function runTradingEngine(
 
           if (!CONFIG.DRY_RUN) {
             try {
-              const order = await exchange.createMarketBuyOrder(activeAsset, tradeAmount);
+              console.log(`📡 [${engineName}] Executing BUY on ${activeAsset}: ${tradeAmount} units @ ~$${entryPrice}`);
+              const order = await exchange.createMarketBuyOrder(activeAsset, tradeAmount, {
+                'positionSide': 'LONG'
+              });
               liveOrderId = order.id;
             } catch (tradeError: any) {
               console.error(`❌ [${engineName} REJECTION] Order failed:`, tradeError.message);
@@ -256,7 +271,7 @@ async function startTradingEngine() {
     'secret': process.env.WEEX_SECRET_KEY,
     'password': process.env.WEEX_PASSPHRASE,
     'timeout': 10000,
-    'enableRateLimit': true, // Auto-throttles API requests to protect against bans
+    'enableRateLimit': true,
     'options': { 'defaultType': 'swap' }
   });
 
@@ -267,7 +282,7 @@ async function startTradingEngine() {
 
     await exchange.loadMarkets();
 
-    const allAssets = [...CONFIG.MAJOR_ASSETS, ...CONFIG.ALT_ASSETS, ...CONFIG.MEME_ASSETS];
+    const allAssets = Array.from(new Set([...CONFIG.MAJOR_ASSETS, ...CONFIG.ALT_ASSETS, ...CONFIG.MEME_ASSETS]));
     for (const asset of allAssets) {
       try {
         await exchange.setLeverage(CONFIG.LEVERAGE_LIMIT, asset);
