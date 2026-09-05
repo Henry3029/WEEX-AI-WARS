@@ -87,24 +87,24 @@ export async function processActivePosition(
       `Exiting at $${currentPrice} (${priceChangePct.toFixed(2)}%) to liberate capital for better opportunities.`
     );
     
-    await executeSell(exchange, activeAsset, tradeAmountUnits, "24H_STAGNANT_TIMEOUT");
+    const soldSuccessfully = await executeSell(exchange, activeAsset, tradeAmountUnits, "24H_STAGNANT_TIMEOUT");
+    if (!soldSuccessfully) return position;
+
     const resetState = createInitialPositionState();
     resetState.lastExitReason = "24H_STAGNANT_TIMEOUT";
     return resetState;
   }
 
-// -------------------------------------------------------------
+  // -------------------------------------------------------------
   // 2. DYNAMIC STEP-UP PROFIT LOCKS (INFINITE SCALING FROM +0.50%)
   // -------------------------------------------------------------
   if (!hasTakenPartialProfit && peakPriceChangePct >= 0.50) {
-    // Calculates 0.20% step increments above +0.50% with a continuous 0.20% buffer
     const stepCount = Math.floor((peakPriceChangePct - 0.50) / 0.20);
     const targetLockPct = 0.30 + (stepCount * 0.20);
 
     if (targetLockPct > updatedLockedProfitPct) {
       const calculatedSL = entryPrice * (1 + targetLockPct / 100);
       
-      // Safety Check: Only apply if new SL > current SL AND current live price > new SL
       if (calculatedSL > updatedStopLoss && currentPrice > calculatedSL) {
         updatedStopLoss = calculatedSL;
         updatedLockedProfitPct = targetLockPct;
@@ -129,16 +129,18 @@ export async function processActivePosition(
       ` Moving SL to Breakeven ($${entryPrice.toFixed(4)}) & Enabling Trailing Stop.`
     );
 
-    await executeSell(exchange, activeAsset, halfUnits, "PARTIAL_TP_50_PERCENT");
-
-    return {
-      ...position,
-      tradeAmountUnits: tradeAmountUnits - halfUnits,
-      stopLossPrice: entryPrice,
-      hasTakenPartialProfit: true,
-      highestPriceSinceEntry: currentPrice,
-      lastExitReason: "PARTIAL_TP_50_PERCENT"
-    };
+    const soldSuccessfully = await executeSell(exchange, activeAsset, halfUnits, "PARTIAL_TP_50_PERCENT");
+    
+    if (soldSuccessfully) {
+      return {
+        ...position,
+        tradeAmountUnits: tradeAmountUnits - halfUnits,
+        stopLossPrice: entryPrice,
+        hasTakenPartialProfit: true,
+        highestPriceSinceEntry: currentPrice,
+        lastExitReason: "PARTIAL_TP_50_PERCENT"
+      };
+    }
   }
 
   // -------------------------------------------------------------
@@ -169,8 +171,10 @@ export async function processActivePosition(
     }
 
     console.log(`\n🛡️🛡️🛡️ [${slReason}] Closing position on ${cleanAsset} at $${currentPrice}.`);
-    await executeSell(exchange, activeAsset, tradeAmountUnits, slReason);
+    const soldSuccessfully = await executeSell(exchange, activeAsset, tradeAmountUnits, slReason);
     
+    if (!soldSuccessfully) return position;
+
     const resetState = createInitialPositionState();
     resetState.lastExitReason = slReason;
     return resetState;
@@ -185,20 +189,49 @@ export async function processActivePosition(
   };
 }
 
-async function executeSell(exchange: any, asset: string, units: number, reason: string) {
-  if (!CONFIG.DRY_RUN) {
-    try {
-      await exchange.createMarketSellOrder(asset, units, {
-        'reduceOnly': true,
-        'positionSide': 'LONG'
-      });
-      console.log(`✅ [LIVE SELL SUCCESS] Exit Reason: ${reason}`);
-    } catch (exitError: any) {
-      console.error(`❌ Critical: Failed to execute sell order: ${exitError.message}`);
-    }
-  } else {
-    console.log(`🧪 [DRY_RUN] Simulated sell of ${units} units of ${asset}. Reason: ${reason}`);
+/**
+ * Normalizes unit quantity according to exchange market precision and executes market sell order.
+ */
+async function executeSell(
+  exchange: any, 
+  asset: string, 
+  rawUnits: number, 
+  reason: string
+): Promise<boolean> {
+  if (CONFIG.DRY_RUN) {
+    console.log(`🧪 [DRY_RUN] Simulated sell of ${rawUnits} units of ${asset}. Reason: ${reason}`);
+    logAIDecision(reason, `Exited ${asset} position.`, { asset, units: rawUnits, mode: 'DRY_RUN' });
+    return true;
   }
 
-  logAIDecision(reason, `Exited ${asset} position.`, { asset, units, mode: CONFIG.DRY_RUN ? 'DRY_RUN' : 'LIVE' });
+  try {
+    if (!exchange.markets || Object.keys(exchange.markets).length === 0) {
+      await exchange.loadMarkets();
     }
+
+    const market = exchange.market(asset);
+    let validUnits = parseFloat(exchange.amountToPrecision(asset, rawUnits));
+    const minAmount = market.limits?.amount?.min || 0;
+
+    if (validUnits < minAmount) {
+      console.warn(`⚠️ [QUANTITY ADJUSTMENT] Calculated units (${validUnits}) below WEEX min (${minAmount}). Adjusting to minimum.`);
+      validUnits = minAmount;
+    }
+
+    console.log(`📡 [SENDING ORDER] Selling ${validUnits} units of ${asset} (Raw requested: ${rawUnits})`);
+
+    await exchange.createMarketSellOrder(asset, validUnits, {
+      'reduceOnly': true,
+      'positionSide': 'LONG'
+    });
+
+    console.log(`✅ [LIVE SELL SUCCESS] Executed ${validUnits} units on ${asset}. Exit Reason: ${reason}`);
+    logAIDecision(reason, `Exited ${asset} position.`, { asset, units: validUnits, mode: 'LIVE' });
+    return true;
+
+  } catch (exitError: any) {
+    console.error(`❌ Critical: Failed to execute sell order on ${asset}: ${exitError.message}`);
+    logAIDecision("SELL_ORDER_FAILED", `Failed sell attempt on ${asset}: ${exitError.message}`, { asset, rawUnits });
+    return false;
+  }
+}
