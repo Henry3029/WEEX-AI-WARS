@@ -5,7 +5,7 @@ import { logAIDecision } from './utils/logger';
 export interface ExtendedPositionState extends PositionState {
   hasTakenPartialProfit?: boolean;
   highestPriceSinceEntry?: number;
-  lastExitReason?: string | null;
+  lastExitReason?: string;
   tierTargetLocked?: boolean; 
   lockedProfitPct?: number; // Tracks current step-up locked profit %
 }
@@ -33,7 +33,7 @@ export function createInitialPositionState(): ExtendedPositionState {
     entryTime: 0,
     hasTakenPartialProfit: false,
     highestPriceSinceEntry: 0,
-    lastExitReason: null,
+    lastExitReason: undefined,
     tierTargetLocked: false,
     lockedProfitPct: 0
   };
@@ -200,7 +200,7 @@ async function executeSell(
 ): Promise<boolean> {
   if (CONFIG.DRY_RUN) {
     console.log(`🧪 [DRY_RUN] Simulated sell of ${rawUnits} units of ${asset}. Reason: ${reason}`);
-    logAIDecision(reason, `Exited ${asset} position.`, { asset, units: rawUnits, mode: 'DRY_RUN' });
+    logAIDecision(reason, `Exited ${asset} position.`, { asset, amountUnits: rawUnits, mode: 'DRY_RUN' });
     return true;
   }
 
@@ -226,12 +226,12 @@ async function executeSell(
     });
 
     console.log(`✅ [LIVE SELL SUCCESS] Executed ${validUnits} units on ${asset}. Exit Reason: ${reason}`);
-    logAIDecision(reason, `Exited ${asset} position.`, { asset, units: validUnits, mode: 'LIVE' });
+    logAIDecision(reason, `Exited ${asset} position.`, { asset, amountUnits: validUnits, mode: 'LIVE' });
     return true;
 
   } catch (exitError: any) {
     console.error(`❌ Critical: Failed to execute sell order on ${asset}: ${exitError.message}`);
-    logAIDecision("SELL_ORDER_FAILED", `Failed sell attempt on ${asset}: ${exitError.message}`, { asset, rawUnits });
+    logAIDecision("SELL_ORDER_FAILED", `Failed sell attempt on ${asset}: ${exitError.message}`, { asset, amountUnits: rawUnits });
     return false;
   }
-}
+    }
