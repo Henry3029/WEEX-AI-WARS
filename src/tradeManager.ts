@@ -216,10 +216,14 @@ function createExecutionRecord(
 /**
  * Normalizes unit quantity according to exchange market precision and executes market sell order.
  */
+
+/**
+ * Normalizes unit quantity according to exchange market precision and executes market sell order.
+ */
 async function executeSell(
-  exchange: any, 
-  asset: string, 
-  rawUnits: number, 
+  exchange: any,
+  asset: string,
+  rawUnits: number,
   executionPrice: number,
   reason: string
 ): Promise<boolean> {
@@ -228,7 +232,7 @@ async function executeSell(
   if (CONFIG.DRY_RUN) {
     console.log(`🧪 [DRY_RUN] Simulated sell of ${rawUnits} units of ${asset}. Reason: ${reason}`);
     logAIDecision(
-      reason, 
+      reason,
       `Simulated exit for ${asset} (${rawUnits} units)`,
       createExecutionRecord(mode, asset, 'SELL', executionPrice, 'SIMULATED_SUCCESS')
     );
@@ -241,24 +245,26 @@ async function executeSell(
     }
 
     const market = exchange.market(asset);
-    let validUnits = parseFloat(exchange.amountToPrecision(asset, rawUnits));
+    const precisionString = exchange.amountToPrecision(asset, rawUnits);
+    let validUnits = parseFloat(precisionString);
     const minAmount = market.limits?.amount?.min || 0;
 
     if (validUnits < minAmount) {
-      console.warn(`⚠️ [QUANTITY ADJUSTMENT] Calculated units (${validUnits}) below WEEX min (${minAmount}). Adjusting to minimum.`);
+      console.warn(`⚠️ [QUANTITY ADJUSTMENT] Units (${validUnits}) below WEEX min (${minAmount}). Adjusting.`);
       validUnits = minAmount;
     }
 
-    console.log(`📡 [SENDING ORDER] Selling ${validUnits} units of ${asset} (Raw requested: ${rawUnits})`);
+    console.log(`📡 [SENDING ORDER] Selling ${validUnits} units of ${asset} (Requested: ${rawUnits})`);
 
     await exchange.createMarketSellOrder(asset, validUnits, {
-      'reduceOnly': true,
-      'positionSide': 'LONG'
+      reduceOnly: true,
+      positionSide: 'LONG',
+      posSide: 'long'
     });
 
     console.log(`✅ [LIVE SELL SUCCESS] Executed ${validUnits} units on ${asset}. Exit Reason: ${reason}`);
     logAIDecision(
-      reason, 
+      reason,
       `Executed sell for ${asset} (${validUnits} units)`,
       createExecutionRecord(mode, asset, 'SELL', executionPrice, 'FILLED')
     );
@@ -267,7 +273,7 @@ async function executeSell(
   } catch (exitError: any) {
     console.error(`❌ Critical: Failed to execute sell order on ${asset}: ${exitError.message}`);
     logAIDecision(
-      'SELL_ORDER_FAILED', 
+      'SELL_ORDER_FAILED',
       `Failed sell attempt on ${asset}: ${exitError.message}`,
       createExecutionRecord(mode, asset, 'SELL', executionPrice, 'FAILED')
     );

@@ -1,9 +1,7 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "ESNext",                  /* Changed from NodeNext */
-    "moduleResolution": "bundler",        /* Changed from NodeNext */
-    "customConditions": ["module"],
+    "module": "CommonJS",
     "types": ["node"],
     "paths": {
       "@/*": ["./src/*"]
@@ -14,5 +12,5 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*", "AI.ts"]
 }

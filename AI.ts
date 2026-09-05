@@ -248,11 +248,15 @@ async function runTradingEngine(
 
           logAIDecision('EMA_CROSSOVER_BUY', signal.reason, {
             mode: CONFIG.DRY_RUN ? "DRY_RUN" : "LIVE",
-            engine: engineName,
-            orderId: liveOrderId,
             asset: activeAsset,
+            action: 'BUY',
             executionPrice: entryPrice,
-            amountUnits: tradeAmount
+            indicators: {
+              fastEma: String(signal.fastEma ?? '0'),
+              slowEma: String(signal.slowEma ?? '0'),
+              rsi: String(signal.rsi ?? '0')
+            },
+            status: 'EXECUTED'
           });
         }
       }
