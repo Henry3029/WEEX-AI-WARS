@@ -200,7 +200,7 @@ async function executeSell(
 ): Promise<boolean> {
   if (CONFIG.DRY_RUN) {
     console.log(`🧪 [DRY_RUN] Simulated sell of ${rawUnits} units of ${asset}. Reason: ${reason}`);
-    logAIDecision(reason, `Exited ${asset} position.`, { asset, amountUnits: rawUnits, mode: 'DRY_RUN' });
+    logAIDecision(reason, `Exited ${asset} position (${rawUnits} units).`);
     return true;
   }
 
@@ -226,12 +226,12 @@ async function executeSell(
     });
 
     console.log(`✅ [LIVE SELL SUCCESS] Executed ${validUnits} units on ${asset}. Exit Reason: ${reason}`);
-    logAIDecision(reason, `Exited ${asset} position.`, { asset, amountUnits: validUnits, mode: 'LIVE' });
+    logAIDecision(reason, `Exited ${asset} position (${validUnits} units).`);
     return true;
 
   } catch (exitError: any) {
     console.error(`❌ Critical: Failed to execute sell order on ${asset}: ${exitError.message}`);
-    logAIDecision("SELL_ORDER_FAILED", `Failed sell attempt on ${asset}: ${exitError.message}`, { asset, amountUnits: rawUnits });
+    logAIDecision("SELL_ORDER_FAILED", `Failed sell attempt on ${asset}: ${exitError.message}`);
     return false;
   }
-    }
+}
