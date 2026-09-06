@@ -2,6 +2,8 @@ import ccxt from 'ccxt';
 import * as dotenv from 'dotenv';
 import express from 'express';
 import https from 'https';
+import { createServer } from 'http';
+import { Server } from 'socket.io';
 
 import { CONFIG } from './src/config';
 import { evaluateStrategy, calculateDynamicAmount } from './src/strategy';
@@ -18,16 +20,69 @@ console.log("Secret loaded:", process.env.WEEX_SECRET_KEY ? "YES" : "NO/UNDEFINE
 console.log("Passphrase loaded:", process.env.WEEX_PASSPHRASE ? "YES" : "NO/UNDEFINED");
 console.log("=========================");
 
-// Express App Setup
+// Express & WebSockets Setup
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// 1. Wrap Express with HTTP Server for WebSockets
+const httpServer = createServer(app);
+
+// 2. Initialize Socket.io Server with CORS allowed for React frontend
+const io = new Server(httpServer, {
+  cors: {
+    origin: "*", // Adjust to your React app domain in production
+    methods: ["GET", "POST"]
+  }
+});
 
 app.get('/', (req, res) => {
   res.send({ status: "online", engine: "WEEX Dual AI Engine Active" });
 });
 
-app.listen(PORT, () => {
-  console.log(`[Web Server] Operational on port ${PORT}`);
+// Socket connection listener
+io.on('connection', (socket) => {
+  console.log(`⚡ [WebSocket] Client connected: ${socket.id}`);
+
+  socket.on('disconnect', () => {
+    console.log(`🔌 [WebSocket] Client disconnected: ${socket.id}`);
+  });
+});
+
+/**
+ * HELPER: Emit system logs to all connected React clients
+ */
+export function emitSystemLog(engine: string, type: 'BUY' | 'TAKE_PROFIT' | 'STOP_LOSS' | 'INFO', message: string) {
+  io.emit('engine_log', {
+    id: Date.now().toString(),
+    engine,
+    type,
+    message,
+    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  });
+}
+
+/**
+ * HELPER: Emit live price updates for active engine monitoring
+ */
+export function emitEngineState(engineId: string, payload: any) {
+  io.emit('engine_state_update', {
+    engineId,
+    ...payload
+  });
+}
+
+/**
+ * HELPER: Calculate live percentage return for open positions
+ */
+function calculateLivePnL(position: PositionState, currentPrice: number): number {
+  if (!position.isHoldingPosition || !position.entryPrice) return 0;
+  const pnl = ((currentPrice - position.entryPrice) / position.entryPrice) * 100;
+  return parseFloat(pnl.toFixed(2));
+}
+
+// Start HTTP + Socket Server on port 3000
+httpServer.listen(PORT, () => {
+  console.log(`[Server] Express & WebSockets operational on port ${PORT}`);
 });
 
 // Self-Pinger
@@ -100,6 +155,7 @@ async function runTradingEngine(
   let position = createInitialPositionState();
 
   console.log(`🚀 [${engineName}] Engine Initialized. Assets: ${assetPool.join(', ')}`);
+  emitSystemLog(engineName, 'INFO', `Engine initialized across pool: ${assetPool.join(', ')}`);
 
   while (true) {
     try {
@@ -113,6 +169,7 @@ async function runTradingEngine(
           if (matchingIndex !== -1) {
             currentAssetIndex = matchingIndex;
           }
+          emitSystemLog(engineName, 'INFO', `Synced active trade on ${position.activeAsset} @ $${position.entryPrice}`);
         }
       }
 
@@ -125,6 +182,7 @@ async function runTradingEngine(
         currentAssetIndex = (currentAssetIndex + 1) % assetPool.length;
         closePrices = [];
         assetStartTime = Date.now();
+        emitSystemLog(engineName, 'INFO', `Rotated focus to ${assetPool[currentAssetIndex]}`);
         continue;
       } else if (elapsed >= THREE_HOURS_MS && position.isHoldingPosition) {
         console.log(`⚠️ [${engineName} Pivot Postponed] Holding active trade on ${activeAsset}.`);
@@ -135,6 +193,14 @@ async function runTradingEngine(
       const currentPrice = ticker.last as number;
       closePrices.push(currentPrice);
       if (closePrices.length > 50) closePrices.shift();
+
+      // Emit live price & engine state to React clients every tick
+      emitEngineState(engineName, {
+        currentAsset: activeAsset,
+        currentPrice: currentPrice,
+        pnlPercentage: position.isHoldingPosition ? calculateLivePnL(position, currentPrice) : 0,
+        status: position.isHoldingPosition ? 'IN_POSITION' : 'HUNTING'
+      });
 
       // --- MODE A: MONITORING ACTIVE POSITION ---
       if (position.isHoldingPosition) {
@@ -148,6 +214,9 @@ async function runTradingEngine(
           const reasonText = isHardStop ? "crashed into Hard Stop Loss (-1.00%)" : "stagnated for 24 hours";
           console.log(`\n🛑 [${engineName} IMMEDIATE PIVOT] Asset ${activeAsset} ${reasonText}. Abandoning & pivoting!`);
           
+          // Emit Stop Loss event to React clients
+          emitSystemLog(engineName, 'STOP_LOSS', `Hard Stop Loss hit on ${activeAsset} (-1.00%). Switched focus.`);
+
           currentAssetIndex = (currentAssetIndex + 1) % assetPool.length;
           closePrices = [];
           assetStartTime = Date.now();
@@ -246,6 +315,9 @@ async function runTradingEngine(
             entryTime: Date.now()
           };
 
+          // Emit Buy Order event to React clients
+          emitSystemLog(engineName, 'BUY', `EMA Crossover buy order executed for ${activeAsset} at $${entryPrice}`);
+
           logAIDecision('EMA_CROSSOVER_BUY', signal.reason, {
             mode: CONFIG.DRY_RUN ? "DRY_RUN" : "LIVE",
             asset: activeAsset,
@@ -280,9 +352,9 @@ async function startTradingEngine() {
   });
 
   try {
-    console.log("╔══════════════════════════════════════════════════════╗");
-    console.log("║              WEEX DUAL AI ENGINE ACTIVATED           ║");
-    console.log("╚══════════════════════════════════════════════════════╝");
+    console.log("╔════════════════════════════════════════════════════════╗");
+    console.log("║              WEEX DUAL AI ENGINE ACTIVATED             ║");
+    console.log("╚════════════════════════════════════════════════════════╝");
 
     await exchange.loadMarkets();
 
@@ -290,7 +362,7 @@ async function startTradingEngine() {
     for (const asset of allAssets) {
       try {
         await exchange.setLeverage(CONFIG.LEVERAGE_LIMIT, asset);
-        console.log(`✅ Leverage set to ${CONFIG.LEVERAGE_LIMIT}x for ${asset}`);
+        console.log(`✔️ Leverage set to ${CONFIG.LEVERAGE_LIMIT}x for ${asset}`);
       } catch (err: any) {
         console.warn(`⚠️ [API Skip] Could not set leverage for ${asset}: ${err.message}`);
       }
