@@ -5,8 +5,7 @@
   "main": "AI.ts",
   "scripts": {
     "dev": "tsx AI.ts",
-    "start": "tsx AI.ts",
-    "postinstall": "prisma skills sync || exit 0"
+    "start": "tsx AI.ts"
   },
   "repository": {
     "type": "git",
@@ -20,13 +19,13 @@
   },
   "homepage": "https://github.com/Henry3029/WEEX-AI-WARS#readme",
   "dependencies": {
-    "@prisma/client": "^7.10.0",
     "bcrypt": "^6.0.0",
     "ccxt": "^4.5.64",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "fs": "^0.0.1-security",
     "jsonwebtoken": "^9.0.3",
+    "mongoose": "^9.9.5",
     "socket.io": "^4.8.3",
     "technicalindicators": "^3.1.0"
   },
@@ -34,8 +33,8 @@
     "@types/bcrypt": "^6.0.0",
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",
+    "@types/mongoose": "^5.11.96",
     "@types/node": "^26.1.1",
-    "prisma": "^8.0.0-rc.13",
     "ts-node": "^10.9.2",
     "tsx": "^4.23.0",
     "typescript": "^7.0.2"
