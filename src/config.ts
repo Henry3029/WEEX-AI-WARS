@@ -30,6 +30,6 @@ export const CONFIG: TradeConfig = {
   RENDER_URL: 'https://weex-ai-wars.onrender.com',
   DRY_RUN: false,
   MEDIUM_HOLD_TIME_MS: 3 * 60 * 60 * 1000,
-  STAGNANT_TIMEOUT_MS: 24 * 60 * 60 * 1000,
+  STAGNANT_TIMEOUT_MS: 3 * 60 * 60 * 1000,
   MAX_HOLD_TIME_MS: 2 * 60 * 60 * 1000
 };
