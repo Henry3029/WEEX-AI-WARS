@@ -147,7 +147,7 @@ async function runTradingEngine(
   let currentAssetIndex = 0;
   let closePrices: number[] = [];
   let assetStartTime = Date.now();
-  const THREE_HOURS_MS = 24 * 60 * 60 * 1000;
+  const THREE_HOURS_MS = 3 * 60 * 60 * 1000;
 
   // High-Water Mark tracker to prevent position shrinkage during drawdowns
   let peakAvailableUSDT = 0;
