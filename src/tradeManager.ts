@@ -78,20 +78,20 @@ export async function processActivePosition(
   let updatedTierTargetLocked = tierTargetLocked;
   let updatedLockedProfitPct = lockedProfitPct;
 
-  // -------------------------------------------------------------
-  // 1. 24-HOUR STAGNANT ASSET CUTOFF (EVICT UNPRODUCTIVE TRADES)
+// -------------------------------------------------------------
+  // 1. 3-HOUR STAGNANT ASSET CUTOFF (EVICT UNPRODUCTIVE TRADES)
   // -------------------------------------------------------------
   if (elapsedTimeMs >= STAGNANT_TIMEOUT_MS && peakPriceChangePct < 0.20) {
     console.log(
-      `\n⏱️ [24H STAGNANT CUTOFF] Trade held for ${timeHeldFormatted} without touching +0.20% peak. ` +
+      `\n [3H STAGNANT CUTOFF] Trade held for ${timeHeldFormatted} without touching +0.20% peak. ` +
       `Exiting at $${currentPrice} (${priceChangePct.toFixed(2)}%) to liberate capital for better opportunities.`
     );
     
-    const soldSuccessfully = await executeSell(exchange, activeAsset, tradeAmountUnits, currentPrice, "24H_STAGNANT_TIMEOUT");
+    const soldSuccessfully = await executeSell(exchange, activeAsset, tradeAmountUnits, currentPrice, "3H_STAGNANT_TIMEOUT");
     if (!soldSuccessfully) return position;
 
     const resetState = createInitialPositionState();
-    resetState.lastExitReason = "24H_STAGNANT_TIMEOUT";
+    resetState.lastExitReason = "3H_STAGNANT_TIMEOUT";
     return resetState;
   }
 

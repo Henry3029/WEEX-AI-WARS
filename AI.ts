@@ -2,6 +2,7 @@ import ccxt from 'ccxt';
 import * as dotenv from 'dotenv';
 import express from 'express';
 import https from 'https';
+import router from './src/routes';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 
