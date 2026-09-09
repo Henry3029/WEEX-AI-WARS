@@ -1,7 +1,7 @@
 import { PositionState } from './types';
 import { CONFIG } from './config';
 import { logAIDecision, ExecutionRecord } from './utils/logger';
-import { processTradeProfitDistribution } from '@/services/distributionService';
+import { processTradeProfitDistribution, TradeExitResult } from '@/services/distributionService';
 
 export interface ExtendedPositionState extends PositionState {
   hasTakenPartialProfit?: boolean;
@@ -100,7 +100,7 @@ export async function processActivePosition(
         exitPrice: currentPrice,
         pnlPercentage: priceChangePct,
         platformFeeRate: 0.20
-      });
+      } as TradeExitResult);
     } catch (distError: any) {
       console.error(`⚠️ Profit distribution failed: ${distError.message}`);
     }
@@ -156,7 +156,7 @@ export async function processActivePosition(
           exitPrice: currentPrice,
           pnlPercentage: priceChangePct,
           platformFeeRate: 0.20 // 20% platform share
-        });
+        } as TradeExitResult);
       } catch (distError: any) {
         console.error(` Profit distribution failed: ${distError.message}`);
       }
@@ -213,7 +213,7 @@ export async function processActivePosition(
         exitPrice: currentPrice,
         pnlPercentage: priceChangePct,
         platformFeeRate: 0.20 // 20% platform share
-      });
+      } as TradeExitResult);
     } catch (distError: any) {
       console.error(` Profit distribution failed: ${distError.message}`);
     }

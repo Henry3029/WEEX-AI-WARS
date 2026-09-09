@@ -1,10 +1,10 @@
 import mongoose from 'mongoose';
-import { User } from '../models/User';
-import { EngineAllocation } from '../models/EngineAllocation';
-import { Transaction } from '../models/Transaction';
-import { emitSystemLog } from '../../index'; // Importing WebSocket logger
+import { User } from '@/models/User';
+import { EngineAllocation } from '@/models/EngineAllocation';
+import { Transaction } from '@/models/Transaction';
+import { emitSystemLog } from '../../AI'; // Importing WebSocket logger
 
-interface TradeExitResult {
+ export interface TradeExitResult {
   engineName: 'MAJOR_ENGINE' | 'ALT_ENGINE' | 'MEME_ENGINE';
   asset: string;
   entryPrice: number;
@@ -43,7 +43,7 @@ export async function processTradeProfitDistribution(tradeResult: TradeExitResul
     }
 
     // 3. Calculate gross pool capital
-    const totalEngineCapital = activeAllocations.reduce((sum, alloc) => sum + alloc.allocatedUsdt, 0);
+    const totalEngineCapital = activeAllocations.reduce((sum: number, alloc: number) => sum + alloc.allocatedUsdt, 0);
 
     let totalPlatformFeesCollected = 0;
 
