@@ -1,5 +1,6 @@
+import 'dotenv/config';
+
 import ccxt from 'ccxt';
-import * as dotenv from 'dotenv';
 import express from 'express';
 import https from 'https';
 import mongoose from 'mongoose';
@@ -13,8 +14,6 @@ import { createInitialPositionState, processActivePosition } from './src/tradeMa
 import { logAIDecision } from './src/utils/logger';
 import { PositionState } from './src/types';
 
-dotenv.config();
-
 // Diagnostics
 console.log("===[ ENV DIAGNOSTICS ]===");
 console.log("API Key loaded:", process.env.WEEX_API_KEY ? "YES (Length: " + process.env.WEEX_API_KEY.length + ")" : "NO/UNDEFINED");
@@ -23,8 +22,8 @@ console.log("Passphrase loaded:", process.env.WEEX_PASSPHRASE ? "YES" : "NO/UNDE
 console.log("=========================");
 
 // Initialize MongoDB Connection
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/weex_bot';
-mongoose.connect(MONGO_URI)
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/weex_bot';
+mongoose.connect(MONGODB_URI)
   .then(() => console.log('🍃 [Database] MongoDB connected successfully'))
   .catch((err) => console.error('❌ [Database] Connection error:', err.message));
 

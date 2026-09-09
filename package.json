@@ -25,6 +25,7 @@
     "express": "^5.2.1",
     "fs": "^0.0.1-security",
     "jsonwebtoken": "^9.0.3",
+    "module-alias": "^2.3.4",
     "mongoose": "^9.9.5",
     "socket.io": "^4.8.3",
     "technicalindicators": "^3.1.0"
@@ -36,7 +37,11 @@
     "@types/mongoose": "^5.11.96",
     "@types/node": "^26.1.1",
     "ts-node": "^10.9.2",
-    "tsx": "^4.23.0",
+    "tsconfig-paths": "^4.2.0",
+    "tsx": "^4.23.13",
     "typescript": "^7.0.2"
+  },
+  "_moduleAliases": {
+    "@": "src"
   }
 }
