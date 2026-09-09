@@ -2,6 +2,7 @@ import ccxt from 'ccxt';
 import * as dotenv from 'dotenv';
 import express from 'express';
 import https from 'https';
+import mongoose from 'mongoose';
 import router from './src/routes';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
@@ -21,9 +22,26 @@ console.log("Secret loaded:", process.env.WEEX_SECRET_KEY ? "YES" : "NO/UNDEFINE
 console.log("Passphrase loaded:", process.env.WEEX_PASSPHRASE ? "YES" : "NO/UNDEFINED");
 console.log("=========================");
 
+// Initialize MongoDB Connection
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/weex_bot';
+mongoose.connect(MONGO_URI)
+  .then(() => console.log('🍃 [Database] MongoDB connected successfully'))
+  .catch((err) => console.error('❌ [Database] Connection error:', err.message));
+
 // Express & WebSockets Setup
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+app.use(express.json());
+app.use('/api', router);
+
+// Catch-all for malformed JSON payloads
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (err instanceof SyntaxError && 'body' in err) {
+    return res.status(400).json({ success: false, error: 'Invalid JSON payload' });
+  }
+  next();
+});
 
 // 1. Wrap Express with HTTP Server for WebSockets
 const httpServer = createServer(app);
@@ -148,7 +166,7 @@ async function runTradingEngine(
   let currentAssetIndex = 0;
   let closePrices: number[] = [];
   let assetStartTime = Date.now();
-  const THREE_HOURS_MS = 3 * 60 * 60 * 1000;
+  const THREE_HOURS_MS = 24 * 60 * 60 * 1000;
 
   // High-Water Mark tracker to prevent position shrinkage during drawdowns
   let peakAvailableUSDT = 0;
@@ -209,14 +227,14 @@ async function runTradingEngine(
         position = await processActivePosition(exchange, position, currentPrice);
 
         const isHardStop = position.lastExitReason === "HARD_STOP_LOSS_HIT";
-        const isStagnant = position.lastExitReason === "24H_STAGNANT_TIMEOUT";
+        const isStagnant = position.lastExitReason === "3H_STAGNANT_TIMEOUT" || position.lastExitReason === "24H_STAGNANT_TIMEOUT";
 
         if (wasHoldingBefore && !position.isHoldingPosition && (isHardStop || isStagnant)) {
-          const reasonText = isHardStop ? "crashed into Hard Stop Loss (-1.00%)" : "stagnated for 24 hours";
+          const reasonText = isHardStop ? "crashed into Hard Stop Loss (-1.00%)" : "stagnated for 3 hours";
           console.log(`\n🛑 [${engineName} IMMEDIATE PIVOT] Asset ${activeAsset} ${reasonText}. Abandoning & pivoting!`);
           
           // Emit Stop Loss event to React clients
-          emitSystemLog(engineName, 'STOP_LOSS', `Hard Stop Loss hit on ${activeAsset} (-1.00%). Switched focus.`);
+          emitSystemLog(engineName, 'STOP_LOSS', `Trade exited on ${activeAsset} (${reasonText}). Switched focus.`);
 
           currentAssetIndex = (currentAssetIndex + 1) % assetPool.length;
           closePrices = [];
@@ -369,7 +387,7 @@ async function startTradingEngine() {
       }
     }
 
-    startSelfPinger();
+  //  startSelfPinger();
 
     // Launch engines concurrently
     await Promise.all([
