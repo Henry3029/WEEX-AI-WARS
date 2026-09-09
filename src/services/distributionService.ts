@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
-import { User } from '@/models/User';
-import { EngineAllocation } from '@/models/EngineAllocation';
-import { Transaction } from '@/models/Transaction';
+import User  from '@/models/User';
+import EngineAllocation from '@/models/EngineAllocation';
+import  Transaction from '@/models/Transaction';
 import { emitSystemLog } from '../../AI'; // Importing WebSocket logger
 
  export interface TradeExitResult {

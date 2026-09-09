@@ -88,7 +88,7 @@ router.post('/engine/allocate', async (req: Request, res: Response) => {
   const session = await mongoose.startSession();
 
   try {
-    let result;
+    let result: { freeBalance: number; allocation: any } | undefined;
 
     await session.withTransaction(async () => {
       const { userId, engineName, amountUsdt } = req.body;
@@ -117,7 +117,7 @@ router.post('/engine/allocate', async (req: Request, res: Response) => {
       };
     });
 
-    res.json({ success: true, (...result || {})});
+    res.json({ success: true, ...(result || {}) });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   } finally {
