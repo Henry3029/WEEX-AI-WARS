@@ -43,7 +43,7 @@ export async function processTradeProfitDistribution(tradeResult: TradeExitResul
     }
 
     // 3. Calculate gross pool capital
-    const totalEngineCapital = activeAllocations.reduce((sum: number, alloc: number) => sum + alloc.allocatedUsdt, 0);
+    const totalEngineCapital = activeAllocations.reduce((sum: number, alloc: any) => sum + alloc.allocatedUsdt, 0);
 
     let totalPlatformFeesCollected = 0;
 
