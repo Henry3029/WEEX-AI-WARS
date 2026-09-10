@@ -238,7 +238,7 @@ async function runTradingEngine(
         const isStagnant = position.lastExitReason === "3H_STAGNANT_TIMEOUT" || position.lastExitReason === "24H_STAGNANT_TIMEOUT";
 
         if (wasHoldingBefore && !position.isHoldingPosition && (isHardStop || isStagnant)) {
-          const reasonText = isHardStop ? "crashed into Hard Stop Loss (-1.00%)" : "stagnated for 3 hours";
+          const reasonText = isHardStop ? "crashed into Hard Stop Loss (-1.00%)" : "stagnated for 24 hours";
           console.log(`\n🛑 [${engineName} IMMEDIATE PIVOT] Asset ${activeAsset} ${reasonText}. Abandoning & pivoting!`);
           
           // Emit Stop Loss event to React clients
