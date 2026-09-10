@@ -105,7 +105,50 @@ router.get('/engine/status', async (req: Request, res: Response) => {
   }
 });
 
+// USER VERIFICATION SIGNATURE
+router.post('/auth/verify', async (req: Request, res: Response) => {
+  try {
+    await connectToDatabase();
+    const { walletAddress, signature } = req.body;
 
+    if (!walletAddress || !signature) {
+      return res.status(400).json({ error: 'Wallet address and signature required' });
+    }
+
+    const normalizedAddress = walletAddress.toLowerCase();
+    const user = await User.findOne({ walletAddress: normalizedAddress });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found. Request a nonce first.' });
+    }
+
+    // Verify Signature
+    const expectedMessage = `Sign this message to authenticate with WEEX Bot: ${user.nonce}`;
+    const recoveredAddress = ethers.verifyMessage(expectedMessage, signature);
+
+    if (recoveredAddress.toLowerCase() !== normalizedAddress) {
+      return res.status(401).json({ error: 'Invalid signature verification failed' });
+    }
+
+    // Invalidate Nonce after successful login (prevents replay attacks)
+    user.nonce = crypto.randomBytes(16).toString('hex');
+    await user.save();
+
+    // Issue standard JWT token
+    const token = jwt.sign({ userId: user._id, walletAddress: user.walletAddress }, JWT_SECRET, { expiresIn: '7d' });
+
+    res.json({
+      token,
+      user: {
+        id: user._id,
+        walletAddress: user.walletAddress,
+        freeUsdtBalance: user.freeUsdtBalance,
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // -------------------------------------------------------------
 // 1. GET CURRENT USER PROFILE (/auth/me)
