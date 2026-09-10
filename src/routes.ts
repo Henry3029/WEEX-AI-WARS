@@ -5,6 +5,7 @@ import mongoose from 'mongoose';
 import { connectToDatabase } from '@/lib/mongodb';
 import User from '@/models/User';
 import EngineAllocation from '@/models/EngineAllocation';
+import { emitSystemLog, emitEngineState } from '../AI';
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your_fallback_jwt_secret';
@@ -39,7 +40,7 @@ router.get('/engine/status', async (req: Request, res: Response) => {
   try {
     await connectToDatabase();
 
-    // Optionally extract userId if JWT provided
+    // 1. Extract userId optionally (Does not fail if missing or invalid)
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
     let userId: string | null = null;
@@ -49,11 +50,11 @@ router.get('/engine/status', async (req: Request, res: Response) => {
         const decoded: any = jwt.verify(token, JWT_SECRET);
         userId = decoded.userId;
       } catch (e) {
-        // Continue unauthenticated if token verification fails
+        // Continue unauthenticated if token is invalid or expired
       }
     }
 
-    // Fetch user allocations from MongoDB if logged in
+    // 2. Fetch user-specific allocations if logged in
     let userAllocations: Record<string, number> = {};
     if (userId) {
       const allocations = await EngineAllocation.find({ userId, status: 'ACTIVE' });
@@ -62,45 +63,61 @@ router.get('/engine/status', async (req: Request, res: Response) => {
       });
     }
 
-    // Build engine array dynamically matching database allocations
+    // 3. Fetch recent system logs from MongoDB so visitors see trade history immediately
+    const logs = await emitSystemLog.find()
+      .sort({ createdAt: -1 })
+      .limit(20)
+      .lean();
+
+    const formattedLogs = logs.map(log => ({
+      id: log._id.toString(),
+      engine: log.engine,
+      type: log.type,
+      message: log.message,
+      timestamp: new Date(log.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    }));
+
+    // 4. Build live engine array (reads live values from memory fallbacking to defaults)
     const engines = [
       {
         id: 'MAJOR_ENGINE',
         name: 'Major Assets Engine',
         focusAssets: ['BTC/USDT', 'ETH/USDT', 'BNB/USDT'],
-        currentAsset: 'BTC/USDT',
-        status: 'HUNTING',
-        pnlPercentage: 0.00,
-        currentPrice: 0.00,
+        currentAsset: emitEngineState?.MAJOR_ENGINE?.currentAsset || 'BTC/USDT',
+        status: emitEngineState?.MAJOR_ENGINE?.status || 'HUNTING',
+        pnlPercentage: emitEngineState?.MAJOR_ENGINE?.pnlPercentage || 0.00,
+        currentPrice: emitEngineState?.MAJOR_ENGINE?.currentPrice || 0.00,
         allocatedCapital: userAllocations['MAJOR_ENGINE'] || 0
       },
       {
         id: 'ALT_ENGINE',
         name: 'Altcoin Engine',
         focusAssets: ['DOGE/USDT', 'XRP/USDT', 'AVAX/USDT', 'ZEC/USDT'],
-        currentAsset: 'DOGE/USDT',
-        status: 'HUNTING',
-        pnlPercentage: 0.00,
-        currentPrice: 0.00,
+        currentAsset: emitEngineState?.ALT_ENGINE?.currentAsset || 'DOGE/USDT',
+        status: emitEngineState?.ALT_ENGINE?.status || 'HUNTING',
+        pnlPercentage: emitEngineState?.ALT_ENGINE?.pnlPercentage || 0.00,
+        currentPrice: emitEngineState?.ALT_ENGINE?.currentPrice || 0.00,
         allocatedCapital: userAllocations['ALT_ENGINE'] || 0
       },
       {
         id: 'MEME_ENGINE',
         name: 'Meme/High-Vol Engine',
         focusAssets: ['BTW/USDT'],
-        currentAsset: 'BTW/USDT',
-        status: 'HUNTING',
-        pnlPercentage: 0.00,
-        currentPrice: 0.00,
+        currentAsset: emitEngineState?.MEME_ENGINE?.currentAsset || 'BTW/USDT',
+        status: emitEngineState?.MEME_ENGINE?.status || 'HUNTING',
+        pnlPercentage: emitEngineState?.MEME_ENGINE?.pnlPercentage || 0.00,
+        currentPrice: emitEngineState?.MEME_ENGINE?.currentPrice || 0.00,
         allocatedCapital: userAllocations['MEME_ENGINE'] || 0
       }
     ];
 
-    res.json({ engines, logs: [] });
+    // Return status 200 to all visitors
+    res.json({ engines, logs: formattedLogs });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
+
 
 
 // -------------------------------------------------------------

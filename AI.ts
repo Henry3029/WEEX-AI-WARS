@@ -2,6 +2,7 @@ import 'dotenv/config';
 
 import ccxt from 'ccxt';
 import express from 'express';
+import cors from 'cors';
 import https from 'https';
 import mongoose from 'mongoose';
 import router from './src/routes';
@@ -29,7 +30,14 @@ mongoose.connect(MONGODB_URI)
 
 // Express & WebSockets Setup
 const app = express();
-const PORT = process.env.PORT || 3000;
+// Enable CORS for frontend client
+app.use(cors({
+  origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+const PORT = process.env.PORT || 3001;
 
 app.use(express.json());
 app.use('/api', router);
@@ -46,10 +54,11 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 const httpServer = createServer(app);
 
 // 2. Initialize Socket.io Server with CORS allowed for React frontend
-const io = new Server(httpServer, {
+const io = new Server(server, {
   cors: {
-    origin: "*", // Adjust to your React app domain in production
-    methods: ["GET", "POST"]
+    origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
+    methods: ['GET', 'POST'],
+    credentials: true
   }
 });
 
