@@ -1,5 +1,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcrypt';
+import { verifyMessage } from 'ethers';
+import crypto from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import mongoose from 'mongoose';
 import { connectToDatabase } from '@/lib/mongodb';
@@ -124,8 +126,8 @@ router.post('/auth/verify', async (req: Request, res: Response) => {
 
     // Verify Signature
     const expectedMessage = `Sign this message to authenticate with WEEX Bot: ${user.nonce}`;
-    const recoveredAddress = ethers.verifyMessage(expectedMessage, signature);
-
+    
+    const recoveredAddress = verifyMessage(expectedMessage, signature);
     if (recoveredAddress.toLowerCase() !== normalizedAddress) {
       return res.status(401).json({ error: 'Invalid signature verification failed' });
     }
