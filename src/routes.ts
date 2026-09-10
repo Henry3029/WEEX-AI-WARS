@@ -1,4 +1,4 @@
-import express, { Request, Response } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import mongoose from 'mongoose';
@@ -9,7 +9,128 @@ import EngineAllocation from '@/models/EngineAllocation';
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your_fallback_jwt_secret';
 
-// 1. USER REGISTER
+// Express Request Extension for Typed Auth Payload
+interface AuthenticatedRequest extends Request {
+  userId?: string;
+}
+
+// -------------------------------------------------------------
+// AUTH MIDDLEWARE: Verifies JWT token from Authorization Header
+// -------------------------------------------------------------
+const authenticateToken = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1]; // Format: "Bearer <TOKEN>"
+
+  if (!token) {
+    return res.status(401).json({ error: 'Access token required' });
+  }
+
+  jwt.verify(token, JWT_SECRET, (err: any, decoded: any) => {
+    if (err) {
+      return res.status(403).json({ error: 'Invalid or expired token' });
+    }
+    req.userId = decoded.userId;
+    next();
+  });
+};
+
+// 5. GET ACTIVE ENGINE STATES & ALLOCATIONS
+router.get('/engine/status', async (req: Request, res: Response) => {
+  try {
+    await connectToDatabase();
+
+    // Optionally extract userId if JWT provided
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+    let userId: string | null = null;
+
+    if (token) {
+      try {
+        const decoded: any = jwt.verify(token, JWT_SECRET);
+        userId = decoded.userId;
+      } catch (e) {
+        // Continue unauthenticated if token verification fails
+      }
+    }
+
+    // Fetch user allocations from MongoDB if logged in
+    let userAllocations: Record<string, number> = {};
+    if (userId) {
+      const allocations = await EngineAllocation.find({ userId, status: 'ACTIVE' });
+      allocations.forEach(alloc => {
+        userAllocations[alloc.engineName] = alloc.allocatedUsdt;
+      });
+    }
+
+    // Build engine array dynamically matching database allocations
+    const engines = [
+      {
+        id: 'MAJOR_ENGINE',
+        name: 'Major Assets Engine',
+        focusAssets: ['BTC/USDT', 'ETH/USDT', 'BNB/USDT'],
+        currentAsset: 'BTC/USDT',
+        status: 'HUNTING',
+        pnlPercentage: 0.00,
+        currentPrice: 0.00,
+        allocatedCapital: userAllocations['MAJOR_ENGINE'] || 0
+      },
+      {
+        id: 'ALT_ENGINE',
+        name: 'Altcoin Engine',
+        focusAssets: ['DOGE/USDT', 'XRP/USDT', 'AVAX/USDT', 'ZEC/USDT'],
+        currentAsset: 'DOGE/USDT',
+        status: 'HUNTING',
+        pnlPercentage: 0.00,
+        currentPrice: 0.00,
+        allocatedCapital: userAllocations['ALT_ENGINE'] || 0
+      },
+      {
+        id: 'MEME_ENGINE',
+        name: 'Meme/High-Vol Engine',
+        focusAssets: ['BTW/USDT'],
+        currentAsset: 'BTW/USDT',
+        status: 'HUNTING',
+        pnlPercentage: 0.00,
+        currentPrice: 0.00,
+        allocatedCapital: userAllocations['MEME_ENGINE'] || 0
+      }
+    ];
+
+    res.json({ engines, logs: [] });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// -------------------------------------------------------------
+// 1. GET CURRENT USER PROFILE (/auth/me)
+// -------------------------------------------------------------
+router.get('/auth/me', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    await connectToDatabase();
+
+    const user = await User.findById(req.userId).select('-passwordHash');
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({
+      user: {
+        id: user._id,
+        email: user.email,
+        freeUsdtBalance: user.freeUsdtBalance,
+        createdAt: user.createdAt,
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// -------------------------------------------------------------
+// 2. USER REGISTER
+// -------------------------------------------------------------
 router.post('/auth/register', async (req: Request, res: Response) => {
   try {
     await connectToDatabase();
@@ -46,7 +167,9 @@ router.post('/auth/register', async (req: Request, res: Response) => {
   }
 });
 
-// 2. USER LOGIN
+// -------------------------------------------------------------
+// 3. USER LOGIN
+// -------------------------------------------------------------
 router.post('/auth/login', async (req: Request, res: Response) => {
   try {
     await connectToDatabase();
@@ -77,7 +200,9 @@ router.post('/auth/login', async (req: Request, res: Response) => {
   }
 });
 
-// 3. ALLOCATE CAPITAL TO ENGINE (Atomic Mongoose Transaction)
+// -------------------------------------------------------------
+// 4. ALLOCATE CAPITAL TO ENGINE (Atomic Mongoose Transaction)
+// -------------------------------------------------------------
 router.post('/engine/allocate', async (req: Request, res: Response) => {
   await connectToDatabase();
 

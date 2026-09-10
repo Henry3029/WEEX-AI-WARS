@@ -23,6 +23,20 @@ function formatDuration(ms: number): string {
   return `${minutes}m ${seconds}s`;
 }
 
+/**
+ * Pushes real-time decision logs to connected WebSocket clients.
+ */
+function emitEngineLog(io: any, engineName: string, type: 'BUY' | 'SELL' | 'TAKE_PROFIT' | 'STOP_LOSS' | 'INFO', message: string) {
+  if (!io) return;
+  io.emit('engine_log', {
+    id: Date.now().toString(),
+    engine: engineName,
+    type: type,
+    message: message,
+    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  });
+}
+
 export function createInitialPositionState(): ExtendedPositionState {
   return {
     isHoldingPosition: false,
@@ -43,7 +57,8 @@ export function createInitialPositionState(): ExtendedPositionState {
 export async function processActivePosition(
   exchange: any,
   position: ExtendedPositionState,
-  currentPrice: number
+  currentPrice: number,
+  io?: any
 ): Promise<ExtendedPositionState> {
   const { 
     activeAsset, 
@@ -68,7 +83,7 @@ export async function processActivePosition(
 
   const STAGNANT_TIMEOUT_MS = CONFIG.STAGNANT_TIMEOUT_MS || (3 * 60 * 60 * 1000); // 3 Hours
 
-  // Status Logging
+  // Terminal Logging
   console.log(
     `[TRADE ACTIVE: ${cleanAsset}] Price: $${currentPrice} | Peak: $${currentHighestPrice.toFixed(4)} (+${peakPriceChangePct.toFixed(2)}%) | ` +
     `SL/TS: $${stopLossPrice.toFixed(4)} | PnL: ${priceChangePct.toFixed(2)}% | Partial TP: ${hasTakenPartialProfit} | ` +
@@ -83,15 +98,14 @@ export async function processActivePosition(
   // 1. 3-HOUR STAGNANT ASSET CUTOFF (EVICT UNPRODUCTIVE TRADES)
   // -------------------------------------------------------------
   if (elapsedTimeMs >= STAGNANT_TIMEOUT_MS && peakPriceChangePct < 0.20) {
-    console.log(
-      `\n [3H STAGNANT CUTOFF] Trade held for ${timeHeldFormatted} without touching +0.20% peak. ` +
-      `Exiting at $${currentPrice} (${priceChangePct.toFixed(2)}%) to liberate capital for better opportunities.`
-    );
+    const logMsg = `3H Stagnant Cutoff: Held for ${timeHeldFormatted} without reaching +0.20% peak. Exiting at $${currentPrice} (${priceChangePct.toFixed(2)}%).`;
+    console.log(`\n⏳ [3H STAGNANT CUTOFF] ${logMsg}`);
+    emitEngineLog(io, cleanAsset, 'INFO', logMsg);
     
     const soldSuccessfully = await executeSell(exchange, activeAsset, tradeAmountUnits, currentPrice, "3H_STAGNANT_TIMEOUT");
     if (!soldSuccessfully) return position;
     
-    // ✅ Process settlement / distribution for 3-Hour Cutoff
+    // Process settlement / distribution for 3-Hour Cutoff
     try {
       await processTradeProfitDistribution({
         engineName: cleanAsset,
@@ -124,10 +138,10 @@ export async function processActivePosition(
         updatedStopLoss = calculatedSL;
         updatedLockedProfitPct = targetLockPct;
         updatedTierTargetLocked = true;
-        console.log(
-          `\n [ANYTIME STEP-UP LOCK] Peak hit +${peakPriceChangePct.toFixed(2)}%! ` +
-          `Locking SL at +${targetLockPct.toFixed(2)}% ($${calculatedSL.toFixed(4)}) with 0.20% buffer.`
-        );
+        
+        const lockMsg = `Peak hit +${peakPriceChangePct.toFixed(2)}%! Lock level adjusted: SL moved to +${targetLockPct.toFixed(2)}% ($${calculatedSL.toFixed(4)}).`;
+        console.log(`\n🔒 [STEP-UP LOCK] ${lockMsg}`);
+        emitEngineLog(io, cleanAsset, 'TAKE_PROFIT', lockMsg);
       }
     }
   }
@@ -139,15 +153,13 @@ export async function processActivePosition(
 
   if (!hasTakenPartialProfit && currentPrice >= partialTpPrice) {
     const halfUnits = tradeAmountUnits / 2;
-    console.log(
-      `\n [PARTIAL TP HIT] Selling 50% of ${cleanAsset} at $${currentPrice} (+2.00% Gain)!` +
-      ` Moving SL to Breakeven ($${entryPrice.toFixed(4)}) & Enabling Trailing Stop.`
-    );
+    const tpMsg = `Partial TP (+2.00% Gain) Hit! Executing 50% sale of ${cleanAsset} at $${currentPrice}. Moving SL to breakeven.`;
+    console.log(`\n🎯 [PARTIAL TP HIT] ${tpMsg}`);
+    emitEngineLog(io, cleanAsset, 'TAKE_PROFIT', tpMsg);
 
     const soldSuccessfully = await executeSell(exchange, activeAsset, halfUnits, currentPrice, "PARTIAL_TP_50_PERCENT");
     
     if (soldSuccessfully) {
-      //  Trigger automated user payout distribution BEFORE return
       try {
         await processTradeProfitDistribution({
           engineName: cleanAsset,
@@ -155,10 +167,10 @@ export async function processActivePosition(
           entryPrice: entryPrice,
           exitPrice: currentPrice,
           pnlPercentage: priceChangePct,
-          platformFeeRate: 0.20 // 20% platform share
+          platformFeeRate: 0.20
         } as TradeExitResult);
       } catch (distError: any) {
-        console.error(` Profit distribution failed: ${distError.message}`);
+        console.error(`⚠️ Profit distribution failed: ${distError.message}`);
       }
 
       return {
@@ -181,10 +193,9 @@ export async function processActivePosition(
 
     if (calculatedTrailingStop > updatedStopLoss) {
       updatedStopLoss = calculatedTrailingStop;
-      console.log(
-        ` [TRAILING STOP UPDATED] Peak: $${currentHighestPrice.toFixed(4)} | ` +
-        `New Trailing SL: $${updatedStopLoss.toFixed(4)}`
-      );
+      const trailMsg = `Trailing stop updated to $${updatedStopLoss.toFixed(4)} following peak of $${currentHighestPrice.toFixed(4)}.`;
+      console.log(`📈 [TRAILING STOP UPDATED] ${trailMsg}`);
+      emitEngineLog(io, cleanAsset, 'INFO', trailMsg);
     }
   }
 
@@ -193,18 +204,24 @@ export async function processActivePosition(
   // -------------------------------------------------------------
   if (currentPrice <= updatedStopLoss) {
     let slReason = "HARD_STOP_LOSS_HIT";
+    let exitType: 'STOP_LOSS' | 'TAKE_PROFIT' = 'STOP_LOSS';
+
     if (hasTakenPartialProfit) {
       slReason = "TRAILING_STOP_HIT";
+      exitType = 'TAKE_PROFIT';
     } else if (updatedTierTargetLocked) {
       slReason = `STEP_UP_LOCKED_PROFIT_HIT_${updatedLockedProfitPct.toFixed(2).replace('.', '_')}_PCT`;
+      exitType = 'TAKE_PROFIT';
     }
 
-    console.log(`\n [${slReason}] Closing position on ${cleanAsset} at $${currentPrice}.`);
+    const exitMsg = `Closing position on ${cleanAsset} via ${slReason} at $${currentPrice}.`;
+    console.log(`\n🛑 [POSITION EXIT] ${exitMsg}`);
+    emitEngineLog(io, cleanAsset, exitType, exitMsg);
+
     const soldSuccessfully = await executeSell(exchange, activeAsset, tradeAmountUnits, currentPrice, slReason);
     
     if (!soldSuccessfully) return position;
     
-    //  Safely call payout distribution with defined variables
     try {
       await processTradeProfitDistribution({
         engineName: cleanAsset,
@@ -212,10 +229,10 @@ export async function processActivePosition(
         entryPrice: entryPrice,
         exitPrice: currentPrice,
         pnlPercentage: priceChangePct,
-        platformFeeRate: 0.20 // 20% platform share
+        platformFeeRate: 0.20
       } as TradeExitResult);
     } catch (distError: any) {
-      console.error(` Profit distribution failed: ${distError.message}`);
+      console.error(`⚠️ Profit distribution failed: ${distError.message}`);
     }
 
     const resetState = createInitialPositionState();
@@ -255,10 +272,6 @@ function createExecutionRecord(
     status
   };
 }
-
-/**
- * Normalizes unit quantity according to exchange market precision and executes market sell order.
- */
 
 /**
  * Normalizes unit quantity according to exchange market precision and executes market sell order.
