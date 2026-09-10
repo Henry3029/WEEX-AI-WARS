@@ -54,13 +54,13 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 const httpServer = createServer(app);
 
 // 2. Initialize Socket.io Server with CORS allowed for React frontend
-const io = new Server(Server(httpServer, {
+const io = new Server(httpServer, {
   cors: {
     origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
     methods: ['GET', 'POST'],
     credentials: true
   }
-});
+})
 
 app.get('/', (req, res) => {
   res.send({ status: "online", engine: "WEEX Dual AI Engine Active" });
