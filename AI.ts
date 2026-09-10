@@ -54,7 +54,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 const httpServer = createServer(app);
 
 // 2. Initialize Socket.io Server with CORS allowed for React frontend
-const io = new Server(server, {
+const io = new Server(Server(httpServer, {
   cors: {
     origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
     methods: ['GET', 'POST'],
@@ -75,23 +75,44 @@ io.on('connection', (socket) => {
   });
 });
 
-/**
- * HELPER: Emit system logs to all connected React clients
- */
+
+// Keep the last 50 logs in memory
+export const systemLogsStore: Array<{
+  id: string;
+  engine: string;
+  type: string;
+  message: string;
+  timestamp: string;
+}> = [];
+
 export function emitSystemLog(engine: string, type: 'BUY' | 'TAKE_PROFIT' | 'STOP_LOSS' | 'INFO', message: string) {
-  io.emit('engine_log', {
+  const logEntry = {
     id: Date.now().toString(),
     engine,
     type,
     message,
     timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  });
+  };
+
+  // Store in memory (keep latest 50)
+  systemLogsStore.unshift(logEntry);
+  if (systemLogsStore.length > 50) systemLogsStore.pop();
+
+  // Broadcast to WebSockets
+  io.emit('engine_log', logEntry);
 }
 
-/**
- * HELPER: Emit live price updates for active engine monitoring
- */
+// 1. Add an in-memory state object
+export const engineStatesStore: Record<string, any> = {};
+
 export function emitEngineState(engineId: string, payload: any) {
+  // Save to memory so HTTP API can read it on page refresh
+  engineStatesStore[engineId] = {
+    ...engineStatesStore[engineId],
+    ...payload
+  };
+
+  // Broadcast live update over WebSockets
   io.emit('engine_state_update', {
     engineId,
     ...payload

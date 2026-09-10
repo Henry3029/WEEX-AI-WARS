@@ -5,7 +5,7 @@ import mongoose from 'mongoose';
 import { connectToDatabase } from '@/lib/mongodb';
 import User from '@/models/User';
 import EngineAllocation from '@/models/EngineAllocation';
-import { emitSystemLog, emitEngineState } from '../AI';
+import { engineStatesStore, systemLogsStore } from '../AI';
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your_fallback_jwt_secret';
@@ -35,12 +35,13 @@ const authenticateToken = (req: AuthenticatedRequest, res: Response, next: NextF
   });
 };
 
-// 5. GET ACTIVE ENGINE STATES & ALLOCATIONS
+
+// GET ACTIVE ENGINE STATES & ALLOCATIONS
 router.get('/engine/status', async (req: Request, res: Response) => {
   try {
     await connectToDatabase();
 
-    // 1. Extract userId optionally (Does not fail if missing or invalid)
+    // 1. Extract optional userId
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
     let userId: string | null = null;
@@ -49,69 +50,55 @@ router.get('/engine/status', async (req: Request, res: Response) => {
       try {
         const decoded: any = jwt.verify(token, JWT_SECRET);
         userId = decoded.userId;
-      } catch (e) {
-        // Continue unauthenticated if token is invalid or expired
-      }
+      } catch (e) {}
     }
 
-    // 2. Fetch user-specific allocations if logged in
+    // 2. Fetch allocations for logged-in user
     let userAllocations: Record<string, number> = {};
     if (userId) {
       const allocations = await EngineAllocation.find({ userId, status: 'ACTIVE' });
-      allocations.forEach(alloc => {
+      allocations.forEach((alloc: any) => {
         userAllocations[alloc.engineName] = alloc.allocatedUsdt;
       });
     }
 
-    // 3. Fetch recent system logs from MongoDB so visitors see trade history immediately
-    const logs = await emitSystemLog.find()
-      .sort({ createdAt: -1 })
-      .limit(20)
-      .lean();
+    // 3. Get latest logs from memory store
+    const formattedLogs = systemLogsStore.slice(0, 20);
 
-    const formattedLogs = logs.map(log => ({
-      id: log._id.toString(),
-      engine: log.engine,
-      type: log.type,
-      message: log.message,
-      timestamp: new Date(log.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    }));
-
-    // 4. Build live engine array (reads live values from memory fallbacking to defaults)
+    // 4. Build live engine array reading from memory store
     const engines = [
       {
         id: 'MAJOR_ENGINE',
         name: 'Major Assets Engine',
         focusAssets: ['BTC/USDT', 'ETH/USDT', 'BNB/USDT'],
-        currentAsset: emitEngineState?.MAJOR_ENGINE?.currentAsset || 'BTC/USDT',
-        status: emitEngineState?.MAJOR_ENGINE?.status || 'HUNTING',
-        pnlPercentage: emitEngineState?.MAJOR_ENGINE?.pnlPercentage || 0.00,
-        currentPrice: emitEngineState?.MAJOR_ENGINE?.currentPrice || 0.00,
+        currentAsset: engineStatesStore['MAJOR_ENGINE']?.currentAsset || 'BTC/USDT',
+        status: engineStatesStore['MAJOR_ENGINE']?.status || 'HUNTING',
+        pnlPercentage: engineStatesStore['MAJOR_ENGINE']?.pnlPercentage || 0.00,
+        currentPrice: engineStatesStore['MAJOR_ENGINE']?.currentPrice || 0.00,
         allocatedCapital: userAllocations['MAJOR_ENGINE'] || 0
       },
       {
         id: 'ALT_ENGINE',
         name: 'Altcoin Engine',
         focusAssets: ['DOGE/USDT', 'XRP/USDT', 'AVAX/USDT', 'ZEC/USDT'],
-        currentAsset: emitEngineState?.ALT_ENGINE?.currentAsset || 'DOGE/USDT',
-        status: emitEngineState?.ALT_ENGINE?.status || 'HUNTING',
-        pnlPercentage: emitEngineState?.ALT_ENGINE?.pnlPercentage || 0.00,
-        currentPrice: emitEngineState?.ALT_ENGINE?.currentPrice || 0.00,
+        currentAsset: engineStatesStore['ALT_ENGINE']?.currentAsset || 'DOGE/USDT',
+        status: engineStatesStore['ALT_ENGINE']?.status || 'HUNTING',
+        pnlPercentage: engineStatesStore['ALT_ENGINE']?.pnlPercentage || 0.00,
+        currentPrice: engineStatesStore['ALT_ENGINE']?.currentPrice || 0.00,
         allocatedCapital: userAllocations['ALT_ENGINE'] || 0
       },
       {
         id: 'MEME_ENGINE',
         name: 'Meme/High-Vol Engine',
         focusAssets: ['BTW/USDT'],
-        currentAsset: emitEngineState?.MEME_ENGINE?.currentAsset || 'BTW/USDT',
-        status: emitEngineState?.MEME_ENGINE?.status || 'HUNTING',
-        pnlPercentage: emitEngineState?.MEME_ENGINE?.pnlPercentage || 0.00,
-        currentPrice: emitEngineState?.MEME_ENGINE?.currentPrice || 0.00,
+        currentAsset: engineStatesStore['MEME_ENGINE']?.currentAsset || 'BTW/USDT',
+        status: engineStatesStore['MEME_ENGINE']?.status || 'HUNTING',
+        pnlPercentage: engineStatesStore['MEME_ENGINE']?.pnlPercentage || 0.00,
+        currentPrice: engineStatesStore['MEME_ENGINE']?.currentPrice || 0.00,
         allocatedCapital: userAllocations['MEME_ENGINE'] || 0
       }
     ];
 
-    // Return status 200 to all visitors
     res.json({ engines, logs: formattedLogs });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
