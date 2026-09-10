@@ -87,7 +87,7 @@ export async function processActivePosition(
   console.log(
     `[TRADE ACTIVE: ${cleanAsset}] Price: $${currentPrice} | Peak: $${currentHighestPrice.toFixed(4)} (+${peakPriceChangePct.toFixed(2)}%) | ` +
     `SL/TS: $${stopLossPrice.toFixed(4)} | PnL: ${priceChangePct.toFixed(2)}% | Partial TP: ${hasTakenPartialProfit} | ` +
-    `Held: ${timeHeldFormatted} | (Rem to 3h Cutoff: ${formatDuration(STAGNANT_TIMEOUT_MS - elapsedTimeMs)})`
+    `Held: ${timeHeldFormatted} | (Rem to 24h Cutoff: ${formatDuration(STAGNANT_TIMEOUT_MS - elapsedTimeMs)})`
   );
 
   let updatedStopLoss = stopLossPrice;
@@ -102,10 +102,10 @@ export async function processActivePosition(
     console.log(`\n⏳ [24H STAGNANT CUTOFF] ${logMsg}`);
     emitEngineLog(io, cleanAsset, 'INFO', logMsg);
     
-    const soldSuccessfully = await executeSell(exchange, activeAsset, tradeAmountUnits, currentPrice, "3H_STAGNANT_TIMEOUT");
+    const soldSuccessfully = await executeSell(exchange, activeAsset, tradeAmountUnits, currentPrice, "24H_STAGNANT_TIMEOUT");
     if (!soldSuccessfully) return position;
     
-    // Process settlement / distribution for 3-Hour Cutoff
+    // Process settlement / distribution for 24-Hour Cutoff
     try {
       await processTradeProfitDistribution({
         engineName: cleanAsset,
