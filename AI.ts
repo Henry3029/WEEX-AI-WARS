@@ -2,10 +2,10 @@ import 'dotenv/config';
 
 import ccxt from 'ccxt';
 import express from 'express';
+import apiRoutes from '.@/routes/index.ts';
 import cors from 'cors';
 import https from 'https';
 import mongoose from 'mongoose';
-import router from './src/routes';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 
@@ -40,7 +40,7 @@ app.use(cors({
 const PORT = process.env.PORT || 3001;
 
 app.use(express.json());
-app.use('/api', router);
+app.use('/api', apiRoutes);
 
 // Catch-all for malformed JSON payloads
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
