@@ -1,8 +1,8 @@
 import express from 'express';
-import authRoutes from './auth.routes.ts';
-import userRoutes from './user.routes.ts';
-import engineRoutes from './engine.routes.ts';
-import tradeRoutes from './trade.routes.ts';
+import authRoutes from './auth.routes.js';
+import userRoutes from './user.routes.js';
+import engineRoutes from './engine.routes.js';
+import tradeRoutes from './trade.routes.js';
 
 const router = express.Router();
 

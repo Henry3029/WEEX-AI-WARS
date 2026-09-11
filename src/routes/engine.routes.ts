@@ -1,9 +1,12 @@
 import express, { Request, Response, NextFunction } from 'express';
 import EngineAllocation from '@/models/EngineAllocation';
 import { engineStatesStore, systemLogsStore } from '../../AI';
-
+import { connectToDatabase } from '@/lib/mongodb';
+import jwt from 'jsonwebtoken';
+import User from '@/models/User';
 
 const router = express.Router();
+const JWT_SECRET = process.env.JWT_SECRET || 'your_fallback_jwt_secret';
 
 // GET ACTIVE ENGINE STATES & ALLOCATIONS
 router.get('/status', async (req: Request, res: Response) => {

@@ -2,11 +2,12 @@ import express from 'express';
 import mongoose from 'mongoose';
 import User from '@/models/User';
 import { connectToDatabase } from '@/lib/mongodb';
-
+import { authenticateToken, AuthenticatedRequest } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
+
 // -------------------------------------------------------------
-// 1. GET CURRENT USER PROFILE (/auth/me)
+// GET CURRENT USER PROFILE (/api/user/me)
 // -------------------------------------------------------------
 router.get('/me', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -17,7 +18,7 @@ router.get('/me', authenticateToken, async (req: AuthenticatedRequest, res: Resp
       return res.status(404).json({ error: 'User not found' });
     }
 
-    res.json({
+    return res.json({
       user: {
         id: user._id,
         email: user.email,
@@ -26,7 +27,7 @@ router.get('/me', authenticateToken, async (req: AuthenticatedRequest, res: Resp
       },
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
