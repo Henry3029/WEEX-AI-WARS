@@ -2,6 +2,7 @@ import express from 'express';
 import mongoose from 'mongoose';
 import User from '@/models/User';
 import { connectToDatabase } from '@/lib/mongodb';
+import { Request, Response, NextFunction } from 'express';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth.middleware.js';
 
 const router = express.Router();

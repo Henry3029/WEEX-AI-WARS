@@ -4,6 +4,7 @@ import { engineStatesStore, systemLogsStore } from '../../AI';
 import { connectToDatabase } from '@/lib/mongodb';
 import jwt from 'jsonwebtoken';
 import User from '@/models/User';
+import mongoose from 'mongoose';
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your_fallback_jwt_secret';
