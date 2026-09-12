@@ -160,7 +160,7 @@ router.post('/weex-keys', async (req, res) => {
         apiKey: apiKey,
       },
       balance: (balance.free as Record<string, number | undefined>)['USDT'] ?? 0,
-      token: JWT_SECRET;
+      token: JWT_SECRET
     });
 
   } catch (error: any) {
