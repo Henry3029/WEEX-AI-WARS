@@ -1,5 +1,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcrypt';
+import { ethers } from 'ethers';
+import * as crypto from 'crypto';
 import ccxt from 'ccxt';
 import { connectToDatabase } from '@/lib/mongodb';
 import jwt from 'jsonwebtoken';
@@ -128,7 +130,7 @@ router.post('/login', async (req: Request, res: Response) => {
 
 
 // 2. Define the EXACT endpoint your frontend fetch call hits
-app.post('/weex-keys', async (req, res) => {
+router.post('/weex-keys', async (req, res) => {
   const { apiKey, apiSecret, passphrase } = req.body;
 
   // Basic validation
