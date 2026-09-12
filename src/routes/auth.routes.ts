@@ -149,17 +149,21 @@ app.post('/weex-keys', async (req, res) => {
 
     // Verify keys by fetching account balance
     const balance = await exchange.fetchBalance();
+    
+// 1. Safely extract USDT free balance (casting through unknown avoids the TS overlap error)
+const freeBalances = (balance as any)?.free;
+const usdtBalance = freeBalances ? Number(freeBalances['USDT'] ?? 0) : 0;
 
-    // 4. Send back success data (or issue a JWT session token)
-    return res.status(200).json({
-      message: 'WEEX connection successful!',
-      user: {
-        username: 'WEEX Trader',
-        apiKey: apiKey,
-      },
-      balance: (balance.free as Record<string, number | undefined>)['USDT'] ?? 0,
-      token: JWT_SECRET;
-    });
+// 2. Send back response
+return res.status(200).json({
+  message: 'WEEX connection successful!',
+  user: {
+    username: 'WEEX Trader',
+    apiKey: apiKey,
+  },
+  balance: usdtBalance,
+  token: JWT_SECRET
+});
 
   } catch (error: any) {
     console.error('WEEX Auth Error:', error.message);
