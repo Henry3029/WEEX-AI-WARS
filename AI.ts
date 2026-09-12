@@ -2,7 +2,7 @@ import 'dotenv/config';
 
 import ccxt from 'ccxt';
 import express from 'express';
-import apiRoutes from './src/routes/index.ts';
+import apiRoutes from './src/routes/index.js';
 import cors from 'cors';
 import https from 'https';
 import mongoose from 'mongoose';
