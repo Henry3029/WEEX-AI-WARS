@@ -30,13 +30,7 @@ mongoose.connect(MONGODB_URI)
 
 // Express & WebSockets Setup
 const app = express();
-// Enable CORS for frontend client
-app.use(cors({
-  origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
+
 const PORT = process.env.PORT || 3001;
 
 app.use(express.json());
@@ -53,14 +47,27 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 // 1. Wrap Express with HTTP Server for WebSockets
 const httpServer = createServer(app);
 
-// 2. Initialize Socket.io Server with CORS allowed for React frontend
+const allowedOrigins = process.env.FRONTEND_URL 
+  ? process.env.FRONTEND_URL.split(',')
+  : ['http://localhost:3000', 'http://127.0.0.1:3000'];
+
+
+// 2. Configure Express CORS Middleware
+app.use(cors({
+  origin: allowedOrigins,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+
+
 const io = new Server(httpServer, {
   cors: {
-    origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
+    origin: allowedOrigins,
     methods: ['GET', 'POST'],
-    credentials: true
-  }
-})
+    credentials: true,
+  },
+});
 
 app.get('/', (req, res) => {
   res.send({ status: "online", engine: "WEEX Dual AI Engine Active" });
@@ -128,9 +135,9 @@ function calculateLivePnL(position: PositionState, currentPrice: number): number
   return parseFloat(pnl.toFixed(2));
 }
 
-// Start HTTP + Socket Server on port 3000
-httpServer.listen(PORT, () => {
-  console.log(`[Server] Express & WebSockets operational on port ${PORT}`);
+// Pass '0.0.0.0' after PORT so Express binds to all public network interfaces
+app.listen(Number(PORT), '0.0.0.0', () => {
+  console.log(`Server running on http://0.0.0.0:${PORT}`);
 });
 
 // Self-Pinger
