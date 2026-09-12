@@ -159,8 +159,8 @@ router.post('/weex-keys', async (req, res) => {
         username: 'WEEX Trader',
         apiKey: apiKey,
       },
-      balance: balance.free['USDT'] || 0,
-      token: 'jwt_session_token_here',
+      balance: (balance.free as Record<string, number | undefined>)['USDT'] ?? 0,
+      token: JWT_SECRET;
     });
 
   } catch (error: any) {
