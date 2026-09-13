@@ -4,11 +4,11 @@ const UserSchema = new Schema(
   {
     walletAddress: {
       type: String,
-      required: [true, 'Wallet address is required'],
-      unique: true,
-      lowercase: true, // Automatically converts addresses (e.g. 0xAbC... -> 0xabc...) to ensure consistency
-      trim: true,
-      index: true,
+  unique: true,
+  sparse: true, // Allows multiple documents to have no walletAddress without breaking the unique index constraint
+  lowercase: true,
+  trim: true,
+  index: true
     },
     nonce: {
       type: String,
