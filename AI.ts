@@ -28,13 +28,37 @@ mongoose.connect(MONGODB_URI)
   .then(() => console.log('🍃 [Database] MongoDB connected successfully'))
   .catch((err) => console.error('❌ [Database] Connection error:', err.message));
 
-// Express & WebSockets Setup
+// Initialize Express
 const app = express();
+const PORT = Number(process.env.PORT) || 3001;
 
-const PORT = process.env.PORT || 3001;
+// Allowed Origins Setup
+const allowedOrigins = process.env.FRONTEND_URL 
+  ? process.env.FRONTEND_URL.split(',')
+  : ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:5173'];
+
+// ==========================================
+// 1. MUST MOUNT CORS BEFORE ANY ROUTES
+// ==========================================
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow non-browsers calls (like curl, mobile app, backend we hooks);
+    if (!origin) return callback(null, true);
+    
+    // In production, strictly match allowed origins
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    // Block any other domain
+    return callback(new Error('CORS Policy: Request origin blocked.'));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
 
 app.use(express.json());
-app.use('/api', apiRoutes);
 
 // Catch-all for malformed JSON payloads
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -44,33 +68,26 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   next();
 });
 
-// 1. Wrap Express with HTTP Server for WebSockets
+// ==========================================
+// 2. MOUNT API ROUTES AFTER CORS
+// ==========================================
+app.use('/api', apiRoutes);
+
+app.get('/', (req, res) => {
+  res.json({ status: "online", engine: "WEEX Dual AI Engine Active" });
+});
+
+// ==========================================
+// 3. ATTACH EXPRESS + SOCKET.IO TO HTTP SERVER
+// ==========================================
 const httpServer = createServer(app);
-
-const allowedOrigins = process.env.FRONTEND_URL 
-  ? process.env.FRONTEND_URL.split(',')
-  : ['http://localhost:3000', 'http://127.0.0.1:3000'];
-
-
-// 2. Configure Express CORS Middleware
-app.use(cors({
-  origin: allowedOrigins,
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-}));
-
 
 const io = new Server(httpServer, {
   cors: {
-    origin: allowedOrigins,
+    origin: '*',
     methods: ['GET', 'POST'],
     credentials: true,
   },
-});
-
-app.get('/', (req, res) => {
-  res.send({ status: "online", engine: "WEEX Dual AI Engine Active" });
 });
 
 // Socket connection listener
@@ -81,7 +98,6 @@ io.on('connection', (socket) => {
     console.log(`🔌 [WebSocket] Client disconnected: ${socket.id}`);
   });
 });
-
 
 // Keep the last 50 logs in memory
 export const systemLogsStore: Array<{
@@ -101,43 +117,37 @@ export function emitSystemLog(engine: string, type: 'BUY' | 'TAKE_PROFIT' | 'STO
     timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   };
 
-  // Store in memory (keep latest 50)
   systemLogsStore.unshift(logEntry);
   if (systemLogsStore.length > 50) systemLogsStore.pop();
 
-  // Broadcast to WebSockets
   io.emit('engine_log', logEntry);
 }
 
-// 1. Add an in-memory state object
 export const engineStatesStore: Record<string, any> = {};
 
 export function emitEngineState(engineId: string, payload: any) {
-  // Save to memory so HTTP API can read it on page refresh
   engineStatesStore[engineId] = {
     ...engineStatesStore[engineId],
     ...payload
   };
 
-  // Broadcast live update over WebSockets
   io.emit('engine_state_update', {
     engineId,
     ...payload
   });
 }
 
-/**
- * HELPER: Calculate live percentage return for open positions
- */
 function calculateLivePnL(position: PositionState, currentPrice: number): number {
   if (!position.isHoldingPosition || !position.entryPrice) return 0;
   const pnl = ((currentPrice - position.entryPrice) / position.entryPrice) * 100;
   return parseFloat(pnl.toFixed(2));
 }
 
-// Pass '0.0.0.0' after PORT so Express binds to all public network interfaces
-app.listen(Number(PORT), '0.0.0.0', () => {
-  console.log(`Server running on http://0.0.0.0:${PORT}`);
+// ==========================================
+// 4. START THE HTTP SERVER (NOT app.listen!)
+// ==========================================
+httpServer.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 [Server] Dual Express & Socket.IO server active on http://0.0.0.0:${PORT}`);
 });
 
 // Self-Pinger

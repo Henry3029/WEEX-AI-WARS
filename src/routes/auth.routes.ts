@@ -77,7 +77,7 @@ router.post('/register', async (req: Request, res: Response) => {
     const user = await User.create({
       email,
       passwordHash,
-      freeUsdtBalance: 1000.0, // Default test credit
+      freeUsdtBalance: user.freeUsdtBalance, 
     });
 
     const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '7d' });

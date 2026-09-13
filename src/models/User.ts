@@ -18,7 +18,7 @@ const UserSchema = new Schema(
     },
     freeUsdtBalance: {
       type: Number,
-      default: 0.0,
+      default: 1000.0,
       min: 0,
     },
   },
