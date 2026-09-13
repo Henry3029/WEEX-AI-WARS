@@ -45,8 +45,11 @@ app.use(cors({
     // Allow non-browsers calls (like curl, mobile app, backend we hooks);
     if (!origin) return callback(null, true);
     
-    // In production, strictly match allowed origins
-    if (allowedOrigins.includes(origin)) {
+   // Check if origin matches allowed list OR ends with .vercel.app
+    const isVercelDomain = origin.endsWith('.vercel.app');
+    const isAllowedOrigin = allowedOrigins.includes(origin);
+
+    if (isAllowedOrigin || isVercelDomain) {
       return callback(null, true);
     }
 
