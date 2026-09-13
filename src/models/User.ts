@@ -2,20 +2,35 @@ import { Schema, model, models } from 'mongoose';
 
 const UserSchema = new Schema(
   {
+    // Web3 / Wallet Auth Fields
     walletAddress: {
       type: String,
-  unique: true,
-  sparse: true, // Allows multiple documents to have no walletAddress without breaking the unique index constraint
-  lowercase: true,
-  trim: true,
-  index: true
+      unique: true,
+      sparse: true,
+      lowercase: true,
+      trim: true,
+      index: true,
     },
     nonce: {
       type: String,
       required: true,
-      // Default initial random nonce generated on creation
       default: () => Math.floor(Math.random() * 1000000).toString(),
     },
+
+    // Standard Web2 Auth Fields
+    email: {
+      type: String,
+      unique: true,
+      sparse: true, // Allows wallet users to sign up without requiring an email
+      lowercase: true,
+      trim: true,
+    },
+    passwordHash: {
+      type: String,
+      required: false, // Optional so wallet-only users don't break validation
+    },
+
+    // Application Balances
     freeUsdtBalance: {
       type: Number,
       default: 1000.0,
@@ -23,11 +38,10 @@ const UserSchema = new Schema(
     },
   },
   {
-    timestamps: true, // Automatically manages createdAt and updatedAt fields
+    timestamps: true,
   }
 );
 
-// Prevent re-compilation of the model during Next.js Hot Module Replacement (HMR)
 const User = models.User || model('User', UserSchema);
 
 export default User;
