@@ -1,10 +1,6 @@
 import 'dotenv/config';
 
 import ccxt from 'ccxt';
-import express from 'express';
-import apiRoutes from './src/routes/index.js';
-import cors from 'cors';
-import https from 'https';
 import mongoose from 'mongoose';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
@@ -28,62 +24,8 @@ mongoose.connect(MONGODB_URI)
   .then(() => console.log('🍃 [Database] MongoDB connected successfully'))
   .catch((err) => console.error('❌ [Database] Connection error:', err.message));
 
-// Initialize Express
-const app = express();
 const PORT = Number(process.env.PORT) || 3001;
-
-// Allowed Origins Setup
-const allowedOrigins = process.env.FRONTEND_URL 
-  ? process.env.FRONTEND_URL.split(',')
-  : ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:5173'];
-
-// ==========================================
-// 1. MUST MOUNT CORS BEFORE ANY ROUTES
-// ==========================================
-app.use(cors({
-  origin: (origin, callback) => {
-    // Allow non-browsers calls (like curl, mobile app, backend we hooks);
-    if (!origin) return callback(null, true);
-    
-   // Check if origin matches allowed list OR ends with .vercel.app
-    const isVercelDomain = origin.endsWith('.vercel.app');
-    const isAllowedOrigin = allowedOrigins.includes(origin);
-
-    if (isAllowedOrigin || isVercelDomain) {
-      return callback(null, true);
-    }
-
-    // Block any other domain
-    return callback(new Error('CORS Policy: Request origin blocked.'));
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-}));
-
-app.use(express.json());
-
-// Catch-all for malformed JSON payloads
-app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  if (err instanceof SyntaxError && 'body' in err) {
-    return res.status(400).json({ success: false, error: 'Invalid JSON payload' });
-  }
-  next();
-});
-
-// ==========================================
-// 2. MOUNT API ROUTES AFTER CORS
-// ==========================================
-app.use('/api', apiRoutes);
-
-app.get('/', (req, res) => {
-  res.json({ status: "online", engine: "WEEX Dual AI Engine Active" });
-});
-
-// ==========================================
-// 3. ATTACH EXPRESS + SOCKET.IO TO HTTP SERVER
-// ==========================================
-const httpServer = createServer(app);
+const httpServer = createServer();
 
 const io = new Server(httpServer, {
   cors: {
@@ -93,14 +35,14 @@ const io = new Server(httpServer, {
   },
 });
 
-// Socket connection listener
 io.on('connection', (socket) => {
-  console.log(`⚡ [WebSocket] Client connected: ${socket.id}`);
+  console.log(`⚡ [Trading WebSocket] Client connected to Bot Engine: ${socket.id}`);
 
   socket.on('disconnect', () => {
-    console.log(`🔌 [WebSocket] Client disconnected: ${socket.id}`);
+    console.log(`🔌 [Trading WebSocket] Client disconnected: ${socket.id}`);
   });
 });
+
 
 // Keep the last 50 logs in memory
 export const systemLogsStore: Array<{
@@ -150,7 +92,7 @@ function calculateLivePnL(position: PositionState, currentPrice: number): number
 // 4. START THE HTTP SERVER (NOT app.listen!)
 // ==========================================
 httpServer.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 [Server] Dual Express & Socket.IO server active on http://0.0.0.0:${PORT}`);
+  console.log(`🚀 [Server] Express & Socket.IO server active on http://0.0.0.0:${PORT}`);
 });
 
 // Self-Pinger
