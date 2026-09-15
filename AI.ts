@@ -6,6 +6,7 @@ import ccxt from 'ccxt';
 import mongoose from 'mongoose';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
+import { isOriginAllowed } from './src/config/cors';
 
 import { CONFIG } from './src/config';
 import { evaluateStrategy, calculateDynamicAmount } from './src/strategy';
@@ -30,16 +31,17 @@ mongoose.connect(MONGODB_URI)
 const PORT = Number(process.env.PORT) || 3001;
 const httpServer = createServer();
 
-const ALLOWED_ORIGINS = [
-  'https://bot.bigviewbot.online',
-  'https://server.bigviewbot.online',
-  'http://localhost:3000'
-];
-
 const io = new Server(httpServer, {
   cors: {
-    origin: ALLOWED_ORIGINS,
+    origin: (origin, callback) => {
+      if (isOriginAllowed(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('CORS Policy: Request origin blocked.'));
+      }
+    },
     methods: ['GET', 'POST'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
   },
 });

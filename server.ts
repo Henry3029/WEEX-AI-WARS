@@ -1,8 +1,9 @@
 import 'dotenv/config';
 
+import cors from 'cors';
+import { isOriginAllowed } from './src/config/cors';
 import express from 'express';
 import apiRoutes from './src/routes/index.js';
-import cors from 'cors';
 import mongoose from 'mongoose';
 
 // ==========================================
@@ -30,29 +31,14 @@ mongoose.connect(MONGODB_URI)
 const app = express();
 const SERVER_PORT = Number(process.env.SERVER_PORT) || 3002;
 
-// Allowed Origins Setup
-const allowedOrigins = process.env.FRONTEND_URL 
-  ? process.env.FRONTEND_URL.split(',')
-  : ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:5173'];
-
-// ==========================================
-// 3. CORS MIDDLEWARE (MUST MOUNT FIRST)
-// ==========================================
+// Mount CORS middleware first
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow non-browser calls (curl, mobile apps, backend webhooks)
-    if (!origin) return callback(null, true);
-    
-    // Check if origin matches allowed list OR ends with .vercel.app
-    const isVercelDomain = origin.endsWith('.vercel.app');
-    const isAllowedOrigin = allowedOrigins.includes(origin);
-
-    if (isAllowedOrigin || isVercelDomain) {
-      return callback(null, true);
+    if (isOriginAllowed(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('CORS Policy: Request origin blocked.'));
     }
-
-    // Block any other domain
-    return callback(new Error('CORS Policy: Request origin blocked.'));
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
