@@ -1,5 +1,7 @@
 import 'dotenv/config';
 
+import https from 'https';
+import { IncomingMessage } from 'http';
 import ccxt from 'ccxt';
 import mongoose from 'mongoose';
 import { createServer } from 'http';
@@ -107,9 +109,9 @@ function startSelfPinger() {
   setInterval(() => {
     if (CONFIG.RENDER_URL.includes('your-app-name')) return;
     console.log(`[Pinger] Firing self-ping...`);
-    https.get(CONFIG.RENDER_URL, (res) => {
+    https.get(CONFIG.RENDER_URL, (res: IncomingMessage) => {
       console.log(`[Pinger] Response status: ${res.statusCode}`);
-    }).on('error', (err) => {
+    }).on('error', (err: Error) => {
       console.error(`[Pinger] Ping failed:`, err.message);
     });
   }, 600000);
@@ -389,9 +391,9 @@ async function startTradingEngine() {
 
     // Launch engines concurrently
     await Promise.all([
-      runTradingEngine("ENGINE_1", exchange, CONFIG.MAJOR_ASSETS, 0.30);
-runTradingEngine("ENGINE_2", exchange, CONFIG.ALT_ASSETS, 0.20);
-runTradingEngine("ENGINE_3", exchange, CONFIG.MEME_ASSETS, 0.20);
+      runTradingEngine("ENGINE_1", exchange, CONFIG.MAJOR_ASSETS, 0.30),
+runTradingEngine("ENGINE_2", exchange, CONFIG.ALT_ASSETS, 0.20),
+runTradingEngine("ENGINE_3", exchange, CONFIG.MEME_ASSETS, 0.20)
     ]);
 
   } catch (criticalError: any) {
