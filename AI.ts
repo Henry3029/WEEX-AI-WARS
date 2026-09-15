@@ -23,13 +23,20 @@ const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/weex_b
 mongoose.connect(MONGODB_URI)
   .then(() => console.log('🍃 [Database] MongoDB connected successfully'))
   .catch((err) => console.error('❌ [Database] Connection error:', err.message));
+  
 
 const PORT = Number(process.env.PORT) || 3001;
 const httpServer = createServer();
 
+const ALLOWED_ORIGINS = [
+  'https://bot.bigviewbot.online',
+  'https://server.bigviewbot.online',
+  'http://localhost:3000'
+];
+
 const io = new Server(httpServer, {
   cors: {
-    origin: '*',
+    origin: ALLOWED_ORIGINS,
     methods: ['GET', 'POST'],
     credentials: true,
   },
@@ -382,9 +389,9 @@ async function startTradingEngine() {
 
     // Launch engines concurrently
     await Promise.all([
-      runTradingEngine("MAJOR_ENGINE", exchange, CONFIG.MAJOR_ASSETS, 0.30), // 30% margin allocation
-      runTradingEngine("ALT_ENGINE", exchange, CONFIG.ALT_ASSETS, 0.20),      // 20% margin allocation
-      runTradingEngine("MEME_ENGINE", exchange, CONFIG.MEME_ASSETS, 0.20)     // 20% margin allocation
+      runTradingEngine("ENGINE_1", exchange, CONFIG.MAJOR_ASSETS, 0.30);
+runTradingEngine("ENGINE_2", exchange, CONFIG.ALT_ASSETS, 0.20);
+runTradingEngine("ENGINE_3", exchange, CONFIG.MEME_ASSETS, 0.20);
     ]);
 
   } catch (criticalError: any) {

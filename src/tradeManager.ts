@@ -194,9 +194,9 @@ export async function processActivePosition(
     if (calculatedTrailingStop > updatedStopLoss) {
       updatedStopLoss = calculatedTrailingStop;
       const trailMsg = `Trailing stop updated to $${updatedStopLoss.toFixed(4)} following peak of $${currentHighestPrice.toFixed(4)}.`;
-      console.log(`📈 [TRAILING STOP UPDATED] ${trailMsg}`);
+      console.log(`📈 [TR43AILING STOP UPDATED] ${trailMsg}`);
       emitEngineLog(io, cleanAsset, 'INFO', trailMsg);
-    }
+    }4
   }
 
   // -------------------------------------------------------------
