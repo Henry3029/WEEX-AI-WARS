@@ -383,8 +383,7 @@ async function startTradingEngine() {
     // Launch engines concurrently
     await Promise.all([
       runTradingEngine("ENGINE_1", exchange, CONFIG.MAJOR_ASSETS, 0.30),
-runTradingEngine("ENGINE_2", exchange, CONFIG.ALT_ASSETS, 0.20),
-runTradingEngine("ENGINE_3", exchange, CONFIG.MEME_ASSETS, 0.20)
+runTradingEngine("ENGINE_2", exchange, CONFIG.ALT_ASSETS, 0.30)
     ]);
 
   } catch (criticalError: any) {

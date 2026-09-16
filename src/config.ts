@@ -3,17 +3,15 @@ import { TradeConfig } from './types';
 export const CONFIG: TradeConfig = {
   MAJOR_ASSETS: [
     'BTC/USDT:USDT',
-    'ETH/USDT:USDT'
+    'ETH/USDT:USDT',
+     'AVAX/USDT:USDT',
+     '1000PEPE/USDT:USDT'
   ],
   ALT_ASSETS: [
     'BNB/USDT:USDT',
     'DOGE/USDT:USDT',
-     'XRP/USDT:USDT'
-  ],
-  MEME_ASSETS: [
-    'AVAX/USDT:USDT',
-    'SOL/USDT:USDT',
-    '1000PEPE/USDT:USDT'
+     'XRP/USDT:USDT',
+     'SOL/USDT:USDT'
   ],
   
   // Market Floor & Minimum Precision Registry
