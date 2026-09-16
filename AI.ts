@@ -368,7 +368,7 @@ async function startTradingEngine() {
 
     await exchange.loadMarkets();
 
-    const allAssets = Array.from(new Set([...CONFIG.MAJOR_ASSETS, ...CONFIG.ALT_ASSETS, ...CONFIG.MEME_ASSETS]));
+    const allAssets = Array.from(new Set([...CONFIG.MAJOR_ASSETS, ...CONFIG.ALT_ASSETS]));
     for (const asset of allAssets) {
       try {
         await exchange.setLeverage(CONFIG.LEVERAGE_LIMIT, asset);
