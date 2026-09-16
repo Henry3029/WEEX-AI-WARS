@@ -1,6 +1,7 @@
 import 'dotenv/config';
 
 import https from 'https';
+import { systemLogsStore, engineStatesStore } from './src/store/engineStore';
 import { IncomingMessage } from 'http';
 import ccxt from 'ccxt';
 import mongoose from 'mongoose';
@@ -54,16 +55,6 @@ io.on('connection', (socket) => {
   });
 });
 
-
-// Keep the last 50 logs in memory
-export const systemLogsStore: Array<{
-  id: string;
-  engine: string;
-  type: string;
-  message: string;
-  timestamp: string;
-}> = [];
-
 export function emitSystemLog(engine: string, type: 'BUY' | 'TAKE_PROFIT' | 'STOP_LOSS' | 'INFO', message: string) {
   const logEntry = {
     id: Date.now().toString(),
@@ -78,8 +69,6 @@ export function emitSystemLog(engine: string, type: 'BUY' | 'TAKE_PROFIT' | 'STO
 
   io.emit('engine_log', logEntry);
 }
-
-export const engineStatesStore: Record<string, any> = {};
 
 export function emitEngineState(engineId: string, payload: any) {
   engineStatesStore[engineId] = {
