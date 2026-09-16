@@ -215,7 +215,7 @@ async function runTradingEngine(
       // --- MODE A: MONITORING ACTIVE POSITION ---
       if (position.isHoldingPosition) {
         const wasHoldingBefore = position.isHoldingPosition;
-        position = await processActivePosition(exchange, position, currentPrice);
+        position = await processActivePosition(exchange, position, currentPrice, io);
 
         const isHardStop = position.lastExitReason === "HARD_STOP_LOSS_HIT";
         const isStagnant = position.lastExitReason === "3H_STAGNANT_TIMEOUT" || position.lastExitReason === "24H_STAGNANT_TIMEOUT";
